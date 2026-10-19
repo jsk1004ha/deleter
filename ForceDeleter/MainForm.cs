@@ -57,6 +57,7 @@ public partial class MainForm : Form
 
     // Tab 4: Settings View Controls
     private Panel pnlSettingsView = null!;
+    private ModernToggleSwitch swTurboMode = null!;
     private ModernToggleSwitch swSecureDelete = null!;
     private ModernToggleSwitch swConfirmPrompt = null!;
     private ModernToggleSwitch swRemoveLocked = null!;
@@ -749,7 +750,11 @@ public partial class MainForm : Form
         };
         pnlSettingsCard.Controls.Add(pnlScroll);
 
-        // Setting 1: Secure delete
+        // Setting 1: Turbo fast delete
+        swTurboMode = new ModernToggleSwitch { Checked = true };
+        pnlScroll.Controls.Add(CreateSettingRow("Turbo fast delete", "Multi-threaded native unlinking & instant detach", SvgIcons.DrawTrash, UITheme.AccentRed, swTurboMode));
+
+        // Setting 2: Secure delete
         swSecureDelete = new ModernToggleSwitch { Checked = false };
         pnlScroll.Controls.Add(CreateSettingRow("Secure delete", "Overwrite files to prevent recovery", SvgIcons.DrawShield, UITheme.AccentPurple, swSecureDelete));
 
@@ -1427,7 +1432,7 @@ public partial class MainForm : Form
 
         var itemsToProcess = new List<TargetItem>(_items);
 
-        await Task.Run(async () =>
+        await Task.Run(() =>
         {
             for (int i = 0; i < totalCount; i++)
             {
@@ -1440,7 +1445,13 @@ public partial class MainForm : Form
                     progressRing.Progress = pct;
                 }));
 
-                var res = ForceDeleteEngine.ForceDelete(item.FullPath, swRemoveLocked.Checked, swSecureDelete.Checked, null);
+                var res = ForceDeleteEngine.ForceDelete(
+                    item.FullPath, 
+                    killLockingProcesses: swRemoveLocked.Checked, 
+                    secureWipe: swSecureDelete.Checked, 
+                    turboMode: swTurboMode.Checked, 
+                    log: null);
+
                 bool ok = (res.Status == DeleteResultStatus.Success || res.Status == DeleteResultStatus.ScheduledOnReboot);
 
                 if (ok)
@@ -1465,9 +1476,6 @@ public partial class MainForm : Form
                     TotalSizeBytes = item.FileSizeBytes,
                     IsSuccessful = ok
                 });
-
-                // Short delay to allow visual progress ring animation
-                await Task.Delay(200);
             }
         });
 

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "authority": "derived_not_acceptance",
+  "session": "cf8a4a970c4ceb3398eaa5b2",
+  "source": {
+    "path": ".adhd/bridge/cf8a4a970c4ceb3398eaa5b2/view.json"
+  },
+  "run_id": "879deac36da14939a3657a0a73e08396",
+  "intent_version": 1,
+  "goal": "Deliver a functioning five-screen UI matching the reference images with MIT SVG icons and subtle deletion animation",
+  "phase": "working",
+  "verification": {},
+  "failure": [],
+  "blocker": "",
+  "next_action": null,
+  "candidate_digest": null,
+  "completed_steps": [],
+  "truncated_fields": [],
+  "projection_sha256": "6d7da5eb5fbfe5242368c75e743c367998d9624dadf5f011aaffabd4f45df5bc",
+  "changes": {
+    "paths": [
+      {
+        "status": " M",
+        "path": "ForceDeleter.exe"
+      },
+      {
+        "status": " M",
+        "path": "ForceDeleter/ForceDeleteEngine.cs"
+      },
+      {
+        "status": " M",
+        "path": "ForceDeleter/MainForm.cs"
+      },
+      {
+        "status": " M",
+        "path": "ForceDeleter/NativeMethods.cs"
+      },
+      {
+        "status": " M",
+        "path": "ForceDeleter/Program.cs"
+      },
+      {
+        "status": " M",
+        "path": "README.md"
+      },
+      {
+        "status": "??",
+        "path": "ForceDeleter/Assets/"
+      }
+    ],
+    "complete": true,
+    "total": 7,
+    "full_diff_command": [
+      "git",
+      "diff",
+      "HEAD",
+      "--"
+    ]
+  },
+  "markdown": "# ADHD progress\n\n**Goal:** Deliver a functioning five-screen UI matching the reference images with MIT SVG icons and subtle deletion animation\n**Phase:** working\n**Blocker:** none observed\n**Next:** unobserved\n\n```json\n{\n  \"changes\": {\n    \"paths\": [\n      {\n        \"status\": \" M\",\n        \"path\": \"ForceDeleter.exe\"\n      },\n      {\n        \"status\": \" M\",\n        \"path\": \"ForceDeleter/ForceDeleteEngine.cs\"\n      },\n      {\n        \"status\": \" M\",\n        \"path\": \"ForceDeleter/MainForm.cs\"\n      },\n      {\n        \"status\": \" M\",\n        \"path\": \"ForceDeleter/NativeMethods.cs\"\n      },\n      {\n        \"status\": \" M\",\n        \"path\": \"ForceDeleter/Program.cs\"\n      },\n      {\n        \"status\": \" M\",\n        \"path\": \"README.md\"\n      },\n      {\n        \"status\": \"??\",\n        \"path\": \"ForceDeleter/Assets/\"\n      }\n    ],\n    \"complete\": true,\n    \"total\": 7,\n    \"full_diff_command\": [\n      \"git\",\n      \"diff\",\n      \"HEAD\",\n      \"--\"\n    ]\n  },\n  \"verification\": {},\n  \"failure\": []\n}\n```\n"
+}

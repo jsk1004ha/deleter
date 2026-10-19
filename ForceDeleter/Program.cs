@@ -38,6 +38,16 @@ internal static class Program
                 return;
             }
 
+            if (firstArg == "--delete" || firstArg == "-d" || firstArg == "/delete")
+            {
+                if (args.Length > 1)
+                {
+                    var res = ForceDeleteEngine.ForceDelete(args[1], true, false, true, Console.WriteLine);
+                    Environment.ExitCode = res.Status == DeleteResultStatus.Success ? 0 : 1;
+                    return;
+                }
+            }
+
             // Paths passed via context menu, CLI, or drag onto exe
             Application.Run(new MainForm(args));
             return;
