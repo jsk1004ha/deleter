@@ -1,0 +1,20 @@
+## Build and Temp Folders
+[Bb]in/
+[Oo]bj/
+BuildOutput/
+ReleaseExe/
+publish/
+
+## Visual Studio & Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## OS Generated
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
