@@ -115,11 +115,11 @@ public static class ProcessUnlocker
                 var proc = Process.GetProcessById(lockInfo.ProcessId);
                 if (!proc.HasExited)
                 {
-                    log?.Invoke($"[x] Terminating process {proc.ProcessName} (PID: {proc.Id})...");
-                    proc.Kill();
+                    log?.Invoke($"[x] Terminating process {proc.ProcessName} (PID: {proc.Id}) and its child tree (fuck-delete-it)...");
+                    proc.Kill(entireProcessTree: true);
                     proc.WaitForExit(1500);
                     killedCount++;
-                    log?.Invoke($"[✓] Process terminated: {proc.ProcessName}");
+                    log?.Invoke($"[✓] Process tree terminated: {proc.ProcessName}");
                 }
             }
             catch (Exception ex)

@@ -38,9 +38,8 @@ internal static class Program
                 return;
             }
 
-            // Path passed via context menu or drag onto exe
-            string initialPath = args[0];
-            Application.Run(new MainForm(initialPath));
+            // Paths passed via context menu, CLI, or drag onto exe
+            Application.Run(new MainForm(args));
             return;
         }
 

@@ -114,6 +114,8 @@ internal static class NativeMethods
     public const int SE_FILE_OBJECT = 1;
     public const uint OWNER_SECURITY_INFORMATION = 0x00000001;
     public const uint DACL_SECURITY_INFORMATION = 0x00000004;
+    public const uint PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000;
+    public const uint UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000;
 
     public static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
@@ -394,4 +396,22 @@ internal static class NativeMethods
         uint dwSessionHandle, out uint pnProcInfoNeeded,
         ref uint pnProcInfo, [In, Out] RM_PROCESS_INFO[]? rgAffectedApps,
         ref uint lpdwRebootReasons);
+
+    // ==========================================
+    // UI & Window Movement Helpers
+    // ==========================================
+    public const int WM_NCLBUTTONDOWN = 0xA1;
+    public const int HT_CAPTION = 0x2;
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 }

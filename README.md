@@ -13,23 +13,44 @@ Windows에서 파일이나 폴더를 삭제하려 할 때 발생하는 **"액세
 1. **[M2Team/NanaRun](https://github.com/M2Team/NanaRun)** (MinSudo):
    - Windows 최상위 권한인 `NT AUTHORITY\SYSTEM` 및 `NT SERVICE\TrustedInstaller` 서비스 토큰 스틸 및 가장(Impersonation).
    - `SeDebugPrivilege`, `SeTakeOwnershipPrivilege`, `SeBackupPrivilege`, `SeRestorePrivilege`, `SeSecurityPrivilege` 등 시스템 특권 활성화.
-2. **[theminji/windows-force-delete](https://github.com/theminji/windows-force-delete)** & **[marianpekar/file-unlocker-for-windows](https://github.com/marianpekar/file-unlocker-for-windows)**:
-   - Windows Restart Manager (`rstrtmgr.dll`) API를 활용한 파일 잠금 프로세스 식별 및 원클릭 프로세스 종료.
+2. **[theminji/windows-force-delete](https://github.com/theminji/windows-force-delete)**, **[lxl66566/fuck-delete-it](https://github.com/lxl66566/fuck-delete-it)** & **[marianpekar/file-unlocker-for-windows](https://github.com/marianpekar/file-unlocker-for-windows)**:
+   - Windows Restart Manager (`rstrtmgr.dll`) API를 활용한 파일 잠금 프로세스 식별 및 자식 프로세스 트리까지 강제 종료 (`Kill(entireProcessTree: true)`).
    - `NtQuerySystemInformation` 기반 원격 핸들 닫기 (`DuplicateHandle` with `DUPLICATE_CLOSE_SOURCE`).
-3. **[CodeDead/DeadLock](https://github.com/CodeDead/DeadLock)**:
-   - 파일 및 폴더 소유권 가져오기 (Take Ownership) 및 ACL `Everyone:FullControl` 강제 부여.
-4. **[RickStrahl/DeleteFiles](https://github.com/RickStrahl/DeleteFiles)**:
+3. **[marceln/SuperDelete](https://github.com/marceln/SuperDelete)** & **[CodeDead/DeadLock](https://github.com/CodeDead/DeadLock)**:
+   - `SuperDelete`의 `SetNamedSecurityInfoW` 기반 NULL DACL 적용 및 상속된 거부 규칙 차단 (`PROTECTED_DACL_SECURITY_INFORMATION`).
+   - 파일 및 폴더 소유권 가져오기 (Take Ownership) 및 ACL 검사 원천 우회.
+4. **[shaggie76/FastDelete](https://github.com/shaggie76/FastDelete)**:
+   - 대용량 폴더(예: `node_modules`, 캐시, 빌드 디렉터리 등) 삭제 시 CPU 코어 기반 병렬 멀티스레드 트리 순회 삭제로 5~10배 속도 향상.
+5. **[Tulpep/SDelete-Gui](https://github.com/Tulpep/SDelete-Gui)** (Sysinternals SDelete):
+   - 안전 삭제(Secure Delete) 옵션 활성화 시 파일 unlinking 전 디스크 블록 0x00 덮어쓰기 및 버퍼 플러시로 복구 방지 슈레더 기능.
+6. **[RickStrahl/DeleteFiles](https://github.com/RickStrahl/DeleteFiles)**:
    - `\\?\` 접두사 기반 최대 32,767자의 확장 긴 경로(Long Path) 및 특수문자/예약어 지원.
    - Read-Only, Hidden, System 속성 일괄 해제.
-5. **[AhmedElbehary-Dev/ForcedDeleteFiles](https://github.com/AhmedElbehary-Dev/ForcedDeleteFiles)**:
+7. **[AhmedElbehary-Dev/ForcedDeleteFiles](https://github.com/AhmedElbehary-Dev/ForcedDeleteFiles)**:
    - 커널 수준에서 잠긴 특수 파일의 경우 `MoveFileExW(..., MOVEFILE_DELAY_UNTIL_REBOOT)`를 통한 다음 부팅 시 100% 삭제 예약.
+
+---
+
+## 🎨 모던 다크 UI 및 애니메이션
+
+- **5가지 전용 뷰 제공**:
+  1. **Delete (메인 삭제 뷰)**: 대기 목록 카드, 상태 표시기(Green/Orange), 원클릭 삭제 및 초기화.
+  2. **Add (대상 추가 뷰)**: 대형 점선 드롭존, 파일/폴더 선택 카드, 추가된 대상 가로 칩 미리보기.
+  3. **History (삭제 이력 뷰)**: 검색 필터, 카테고리 칩(`All`, `Files`, `Folders`, `Successful`, `With Warnings`), 내보내기(`Export`).
+  4. **Settings (환경설정 뷰)**: `Secure delete` (SDelete 덮어쓰기), `Show confirmation prompt`, `Remove locked files`, `Dark mode`, `Explorer Context Menu` 토글 스위치.
+  5. **Deleting (삭제 애니메이션 뷰)**: 실시간 60FPS 네온 서큘러 프로그레스 링, 파티클 펄스, 성공/경고 요약 통계.
+- **둥근 모서리 디자인 & 벡터 SVG 아이콘**: 고해상도 DPI 대응 MIT 라이선스 벡터 아이콘 적용 및 미려한 둥근 카드/버튼.
 
 ---
 
 ## ⚡ 6단계 강제 삭제 파이프라인 (Multi-Tier Deletion)
 
 1. **Tier 1 (표준 삭제)**: 일반 `.NET` 표준 삭제 시도 (정상 파일 1ms 이내 즉각 삭제).
-2. **Tier 2 (속성 및 ACL 재설정)**: Read-Only, System, Hidden 속성 제거 후 소유권을 Administrators로 변경하고 Everyone Full Control 권한 부여 후 삭제.
+2. **Tier 2 (속성 해제 및 SuperDelete ACL 우회)**: Read-Only, System, Hidden 속성 제거 후 소유권을 Administrators로 변경하고 NULL DACL로 거부 규칙 무력화.
+3. **Tier 3 (NanaRun 권한 상승)**: TrustedInstaller 서비스 기동 후 토큰을 복제/가장하여 시스템 최고 권한으로 삭제.
+4. **Tier 4 (잠금 프로세스 트리 종료 및 핸들 해제)**: Restart Manager를 통해 파일을 물고 있는 프로세스 트리를 강제 종료(`fuck-delete-it`)하고 열린 파일 핸들을 강제 폐쇄.
+5. **Tier 5 (저수준 NT POSIX 삭제)**: `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS` 및 `NtSetInformationFile` with `FileDispositionInformationEx` (POSIX Semantics) 저수준 언링크.
+6. **Tier 6 (이름 난수화 및 재부팅 삭제 예약)**: 임시 파일명으로 이동 후 삭제 시도, 물리적 락의 경우 다음 Windows 재부팅 시 삭제 등록.
 3. **Tier 3 (NanaRun 권한 상승)**: TrustedInstaller 서비스 기동 후 토큰을 복제/가장하여 시스템 최고 권한으로 삭제.
 4. **Tier 4 (잠금 프로세스 종료 및 핸들 해제)**: Restart Manager를 통해 파일을 물고 있는 프로세스를 종료하고 열린 파일 핸들을 강제 폐쇄 후 삭제.
 5. **Tier 5 (저수준 NT POSIX 삭제)**: `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS` 및 `NtSetInformationFile` with `FileDispositionInformationEx` (POSIX Semantics) 저수준 언링크.

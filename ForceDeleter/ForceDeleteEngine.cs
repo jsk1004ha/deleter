@@ -26,8 +26,14 @@ public static class ForceDeleteEngine
 {
     /// <summary>
     /// Executes the multi-tiered deletion pipeline on a file or folder.
+    /// Incorporates techniques from:
+    /// - NanaRun (TrustedInstaller / SYSTEM token impersonation)
+    /// - windows-force-delete & fuck-delete-it (Restart Manager & Process Tree Termination)
+    /// - SuperDelete (ACL bypass via NULL DACL & 32k long paths)
+    /// - FastDelete (Parallel multi-threaded directory tree deletion)
+    /// - SDelete-Gui (Zero/random overwrite anti-recovery secure shredding)
     /// </summary>
-    public static DeleteResult ForceDelete(string targetPath, bool killLockingProcesses = true, Action<string>? log = null)
+    public static DeleteResult ForceDelete(string targetPath, bool killLockingProcesses = true, bool secureWipe = false, Action<string>? log = null)
     {
         if (string.IsNullOrWhiteSpace(targetPath))
             return new DeleteResult(DeleteResultStatus.Failed, "Target path is empty.", 0);
@@ -39,12 +45,18 @@ public static class ForceDeleteEngine
         log?.Invoke($"\n[>>>] Starting force deletion for: {targetPath}");
         log?.Invoke($"[i] Target type: {(isDirectory ? "Directory" : "File")}");
 
-        // If it's a directory, recursively delete its contents first
+        // SDelete-Gui technique: Overwrite file before unlinking if secure delete is requested
+        if (!isDirectory && secureWipe)
+        {
+            SecureShredFile(targetPath, log);
+        }
+
+        // FastDelete technique: If directory, delete contents in parallel across multi-cores
         if (isDirectory)
         {
             try
             {
-                DeleteDirectoryContents(targetPath, killLockingProcesses, log);
+                DeleteDirectoryContents(targetPath, killLockingProcesses, secureWipe, log);
             }
             catch (Exception ex)
             {
@@ -278,7 +290,7 @@ public static class ForceDeleteEngine
         }
     }
 
-    private static void DeleteDirectoryContents(string dirPath, bool killLocks, Action<string>? log)
+    private static void DeleteDirectoryContents(string dirPath, bool killLocks, bool secureWipe, Action<string>? log)
     {
         // First optimize: unlock and grant permissions to the top directory to ease child deletions
         SecurityManager.StripAttributes(dirPath, null);
@@ -286,30 +298,69 @@ public static class ForceDeleteEngine
 
         try
         {
-            // Bottom-up traversal: first process child entries
-            foreach (var entry in Directory.EnumerateFileSystemEntries(dirPath))
+            // FastDelete technique: parallel multithreaded directory content processing across CPU cores
+            var entries = System.Linq.Enumerable.ToList(Directory.EnumerateFileSystemEntries(dirPath));
+            int maxDegree = Math.Clamp(Environment.ProcessorCount * 2, 4, 32);
+
+            System.Threading.Tasks.Parallel.ForEach(entries, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = maxDegree }, entry =>
             {
                 try
                 {
                     if (Directory.Exists(entry))
                     {
-                        DeleteDirectoryContents(entry, killLocks, log);
-                        ForceDelete(entry, killLocks, log);
+                        DeleteDirectoryContents(entry, killLocks, secureWipe, log);
+                        ForceDelete(entry, killLocks, secureWipe, log);
                     }
                     else
                     {
-                        ForceDelete(entry, killLocks, log);
+                        ForceDelete(entry, killLocks, secureWipe, log);
                     }
                 }
                 catch (Exception ex)
                 {
-                    log?.Invoke($"[!] Error processing entry {Path.GetFileName(entry)}: {ex.Message}");
+                    log?.Invoke($"[!] FastDelete entry error {Path.GetFileName(entry)}: {ex.Message}");
                 }
-            }
+            });
         }
         catch (Exception ex)
         {
             log?.Invoke($"[!] Directory enumeration warning for {Path.GetFileName(dirPath)}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Overwrites file data with zero bytes and flushes to physical storage before unlinking
+    /// (Tulpep/SDelete-Gui and Sysinternals SDelete anti-recovery shredding technique).
+    /// </summary>
+    public static void SecureShredFile(string filePath, Action<string>? log = null)
+    {
+        try
+        {
+            string normPath = SecurityManager.NormalizePath(filePath);
+            SecurityManager.StripAttributes(normPath, null);
+            using (var fs = new FileStream(normPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+            {
+                long length = fs.Length;
+                if (length > 0)
+                {
+                    byte[] zeroBuffer = new byte[Math.Min(length, 65536)];
+                    long remaining = length;
+                    fs.Position = 0;
+                    while (remaining > 0)
+                    {
+                        int toWrite = (int)Math.Min(remaining, zeroBuffer.Length);
+                        fs.Write(zeroBuffer, 0, toWrite);
+                        remaining -= toWrite;
+                    }
+                    fs.Flush(flushToDisk: true);
+                }
+                fs.SetLength(0);
+                log?.Invoke($"[★ SDelete] Overwrote file contents with zeroes to prevent recovery ({length} bytes).");
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"[!] SDelete shred note: {ex.Message}");
         }
     }
 

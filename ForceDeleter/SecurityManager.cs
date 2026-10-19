@@ -85,7 +85,20 @@ public static class SecurityManager
             log?.Invoke($"[!] Native ACL modification failed: {ex.Message}");
         }
 
-        // Method 2: System utilities takeown + icacls (DeadLock technique)
+        // Method 2: SuperDelete technique (SetNamedSecurityInfoW NULL DACL + PROTECTED_DACL)
+        if (!success)
+        {
+            try
+            {
+                success = BypassAclSuperDelete(path, log);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[!] SuperDelete ACL bypass note: {ex.Message}");
+            }
+        }
+
+        // Method 3: System utilities takeown + icacls (DeadLock technique)
         // [Optimization] Only execute slower external CLI processes if native in-process API failed!
         if (!success)
         {
@@ -102,6 +115,38 @@ public static class SecurityManager
         }
 
         return success;
+    }
+
+    /// <summary>
+    /// Bypasses all ACL restrictions and severs inherited Deny ACEs using SuperDelete technique:
+    /// Applies a NULL DACL with PROTECTED_DACL_SECURITY_INFORMATION via Win32 SetNamedSecurityInfoW.
+    /// Under SeBackupPrivilege / SeRestorePrivilege, this grants unconditional full control.
+    /// </summary>
+    public static bool BypassAclSuperDelete(string path, Action<string>? log = null)
+    {
+        try
+        {
+            string normPath = NormalizePath(path);
+            uint res = NativeMethods.SetNamedSecurityInfoW(
+                normPath,
+                NativeMethods.SE_FILE_OBJECT,
+                NativeMethods.DACL_SECURITY_INFORMATION | NativeMethods.PROTECTED_DACL_SECURITY_INFORMATION,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                IntPtr.Zero, // NULL DACL = Unconditional Full Control to Everyone
+                IntPtr.Zero);
+
+            if (res == 0)
+            {
+                log?.Invoke($"[✓ SuperDelete] Successfully bypassed ACL and severed inherited Deny rules for {Path.GetFileName(path)}");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"[!] BypassAclSuperDelete note: {ex.Message}");
+        }
+        return false;
     }
 
     private static bool SetOwnershipAndDaclNative(string path, Action<string>? log)
