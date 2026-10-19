@@ -22,6 +22,7 @@ public partial class MainForm : Form
     private ListView lvLocks = null!;
     private RichTextBox rtbLog = null!;
     private Label lblStatus = null!;
+    private ProgressBar progressBar = null!;
 
     public MainForm(string? initialPath = null)
     {
@@ -230,13 +231,26 @@ public partial class MainForm : Form
         this.Controls.Add(btnContextMenu);
 
         // -------------------------------------------------------------
+        // Progress Bar
+        // -------------------------------------------------------------
+        progressBar = new ProgressBar
+        {
+            Location = new Point(16, 432),
+            Size = new Size(712, 10),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Style = ProgressBarStyle.Continuous,
+            Visible = false
+        };
+        this.Controls.Add(progressBar);
+
+        // -------------------------------------------------------------
         // Real-Time Log Viewer Area (Bottom)
         // -------------------------------------------------------------
         var grpLog = new GroupBox
         {
             Text = "실시간 작업 로그 (Multi-Tier Deletion Log)",
-            Location = new Point(16, 435),
-            Size = new Size(712, 195),
+            Location = new Point(16, 450),
+            Size = new Size(712, 180),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
             Font = new Font("Segoe UI", 9F, FontStyle.Bold)
         };
@@ -266,8 +280,17 @@ public partial class MainForm : Form
     {
         if (rtbLog.InvokeRequired)
         {
-            rtbLog.Invoke(new Action(() => Log(message)));
+            rtbLog.BeginInvoke(new Action(() => Log(message)));
             return;
+        }
+
+        // Limit lines to prevent UI lag on massive directory deletions
+        if (rtbLog.Lines.Length > 1000)
+        {
+            string[] lines = rtbLog.Lines;
+            var newLines = new string[700];
+            Array.Copy(lines, 300, newLines, 0, 700);
+            rtbLog.Lines = newLines;
         }
 
         rtbLog.AppendText(message + Environment.NewLine);
@@ -469,6 +492,9 @@ public partial class MainForm : Form
         btnForceDelete.Enabled = false;
         btnBrowseFile.Enabled = false;
         btnBrowseFolder.Enabled = false;
+        progressBar.Style = ProgressBarStyle.Marquee;
+        progressBar.MarqueeAnimationSpeed = 30;
+        progressBar.Visible = true;
         bool killLocks = chkKillLocks.Checked;
 
         Log("\n=======================================================");
@@ -477,6 +503,7 @@ public partial class MainForm : Form
 
         var result = await Task.Run(() => ForceDeleteEngine.ForceDelete(path, killLocks, Log));
 
+        progressBar.Visible = false;
         btnForceDelete.Enabled = true;
         btnBrowseFile.Enabled = true;
         btnBrowseFolder.Enabled = true;

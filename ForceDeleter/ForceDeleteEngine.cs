@@ -280,19 +280,36 @@ public static class ForceDeleteEngine
 
     private static void DeleteDirectoryContents(string dirPath, bool killLocks, Action<string>? log)
     {
-        // Recursively delete all files
-        foreach (var file in Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories))
+        // First optimize: unlock and grant permissions to the top directory to ease child deletions
+        SecurityManager.StripAttributes(dirPath, null);
+        SecurityManager.TakeOwnershipAndGrantPermissions(dirPath, null);
+
+        try
         {
-            ForceDelete(file, killLocks, log);
+            // Bottom-up traversal: first process child entries
+            foreach (var entry in Directory.EnumerateFileSystemEntries(dirPath))
+            {
+                try
+                {
+                    if (Directory.Exists(entry))
+                    {
+                        DeleteDirectoryContents(entry, killLocks, log);
+                        ForceDelete(entry, killLocks, log);
+                    }
+                    else
+                    {
+                        ForceDelete(entry, killLocks, log);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"[!] Error processing entry {Path.GetFileName(entry)}: {ex.Message}");
+                }
+            }
         }
-
-        // Recursively delete all child directories (from deepest to shallowest)
-        var dirs = Directory.GetDirectories(dirPath, "*", SearchOption.AllDirectories);
-        Array.Sort(dirs, (a, b) => b.Length.CompareTo(a.Length));
-
-        foreach (var subDir in dirs)
+        catch (Exception ex)
         {
-            ForceDelete(subDir, killLocks, log);
+            log?.Invoke($"[!] Directory enumeration warning for {Path.GetFileName(dirPath)}: {ex.Message}");
         }
     }
 

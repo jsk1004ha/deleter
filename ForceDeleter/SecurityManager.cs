@@ -75,7 +75,7 @@ public static class SecurityManager
     {
         bool success = false;
 
-        // Method 1: In-process API ownership change using SID
+        // Method 1: Fast in-process API ownership & ACL modification
         try
         {
             success = SetOwnershipAndDaclNative(path, log);
@@ -86,15 +86,19 @@ public static class SecurityManager
         }
 
         // Method 2: System utilities takeown + icacls (DeadLock technique)
-        try
+        // [Optimization] Only execute slower external CLI processes if native in-process API failed!
+        if (!success)
         {
-            RunTakeown(path, log);
-            RunIcacls(path, log);
-            success = true;
-        }
-        catch (Exception ex)
-        {
-            log?.Invoke($"[!] CLI permission grant failed: {ex.Message}");
+            try
+            {
+                RunTakeown(path, log);
+                RunIcacls(path, log);
+                success = true;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[!] CLI permission grant failed: {ex.Message}");
+            }
         }
 
         return success;

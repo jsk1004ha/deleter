@@ -10,6 +10,16 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>ForceDeleter</AssemblyName>
     <RootNamespace>ForceDeleter</RootNamespace>
+
+    <!-- Performance & Deployment Optimization -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <TieredCompilation>true</TieredCompilation>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
 
 </Project>
