@@ -39,6 +39,7 @@ public static class ContextMenuHelper
             {
                 key.SetValue("", MenuDisplayName);
                 key.SetValue("Icon", $"\"{exePath}\",0");
+                key.SetValue("MultiSelectModel", "Player");
 
                 using var cmdKey = key.CreateSubKey("command");
                 cmdKey.SetValue("", $"\"{exePath}\" \"%1\"");
@@ -49,6 +50,7 @@ public static class ContextMenuHelper
             {
                 key.SetValue("", MenuDisplayName);
                 key.SetValue("Icon", $"\"{exePath}\",0");
+                key.SetValue("MultiSelectModel", "Player");
 
                 using var cmdKey = key.CreateSubKey("command");
                 cmdKey.SetValue("", $"\"{exePath}\" \"%1\"");

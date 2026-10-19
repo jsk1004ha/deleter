@@ -90,10 +90,7 @@ public partial class MainForm : Form
 
         if (initialPaths != null)
         {
-            foreach (var path in initialPaths)
-            {
-                AddTargetItem(path);
-            }
+            AddTargetItems(initialPaths);
         }
     }
 
@@ -320,7 +317,8 @@ public partial class MainForm : Form
         btnDelete.Paint += (s, e) =>
         {
             UITheme.EnableAntiAlias(e.Graphics);
-            int iconX = (btnDelete.Width / 2) - 52;
+            var sz = TextRenderer.MeasureText(btnDelete.Text.Trim(), btnDelete.Font);
+            int iconX = Math.Max(16, (btnDelete.Width - sz.Width) / 2 - 22);
             int iconY = (btnDelete.Height / 2) - 8;
             SvgIcons.DrawTrash(e.Graphics, new Rectangle(iconX, iconY, 16, 16), Color.White);
         };
@@ -406,8 +404,11 @@ public partial class MainForm : Form
             Dock = DockStyle.Top,
             Height = 180,
             BackColor = UITheme.BgCardContainer,
-            Cursor = Cursors.Hand
+            Cursor = Cursors.Hand,
+            AllowDrop = true
         };
+        pnlDropZone.DragEnter += MainForm_DragEnter;
+        pnlDropZone.DragDrop += MainForm_DragDrop;
         pnlDropZone.Paint += (s, e) =>
         {
             UITheme.EnableAntiAlias(e.Graphics);
@@ -445,8 +446,8 @@ public partial class MainForm : Form
 
         int cardW = (670 - 16) / 2;
 
-        // Card 1: Add File
-        var pnlBtnFile = CreateAddSelectorCard("파일 추가 (Add File)", SvgIcons.DrawDocument, Color.FromArgb(160, 180, 220), () => PromptAddFiles());
+        // Card 1: Add File (Multi-select)
+        var pnlBtnFile = CreateAddSelectorCard("파일 다중 추가 (Add Files)", SvgIcons.DrawDocument, Color.FromArgb(160, 180, 220), () => PromptAddFiles());
         pnlBtnFile.Location = new Point(0, 10);
         pnlBtnFile.Size = new Size(cardW, 68);
         pnlTwoCards.Controls.Add(pnlBtnFile);
@@ -1145,28 +1146,50 @@ public partial class MainForm : Form
     // =============================================================
     // Item List & Card Controls
     // =============================================================
+    public void AddTargetItems(IEnumerable<string> paths)
+    {
+        if (paths == null) return;
+        bool addedAny = false;
+        var newlyAdded = new List<TargetItem>();
+
+        foreach (var rawPath in paths)
+        {
+            if (string.IsNullOrWhiteSpace(rawPath)) continue;
+            string path = rawPath.Trim('\"', ' ');
+
+            if (!File.Exists(path) && !Directory.Exists(path))
+                continue;
+
+            if (_items.Any(i => i.FullPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var item = new TargetItem(path);
+            _items.Add(item);
+            newlyAdded.Add(item);
+            addedAny = true;
+        }
+
+        if (addedAny)
+        {
+            RefreshItemListUI();
+
+            // Check locks in parallel for newly added items
+            Task.Run(() =>
+            {
+                Parallel.ForEach(newlyAdded, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount * 2, 4, 16) }, item =>
+                {
+                    var locks = ProcessUnlocker.FindLockingProcesses(item.FullPath);
+                    item.LockingProcesses = locks;
+                    item.Status = locks.Count > 0 ? ItemLockStatus.Locked : ItemLockStatus.Ready;
+                    this.BeginInvoke(new Action(() => UpdateItemRowUI(item)));
+                });
+            });
+        }
+    }
+
     public void AddTargetItem(string path)
     {
-        if (string.IsNullOrWhiteSpace(path)) return;
-        path = path.Trim('\"', ' ');
-
-        if (!File.Exists(path) && !Directory.Exists(path))
-            return;
-
-        if (_items.Any(i => i.FullPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        var item = new TargetItem(path);
-        _items.Add(item);
-        RefreshItemListUI();
-
-        _ = Task.Run(() =>
-        {
-            var locks = ProcessUnlocker.FindLockingProcesses(item.FullPath);
-            item.LockingProcesses = locks;
-            item.Status = locks.Count > 0 ? ItemLockStatus.Locked : ItemLockStatus.Ready;
-            this.BeginInvoke(new Action(() => UpdateItemRowUI(item)));
-        });
+        AddTargetItems(new[] { path });
     }
 
     private void ClearItems()
@@ -1190,11 +1213,17 @@ public partial class MainForm : Form
         {
             lblEmptyHint.Visible = true;
             pnlItemList.Visible = false;
+            btnDelete.Enabled = false;
+            btnDelete.Text = "       Delete";
+            btnClear.Enabled = false;
         }
         else
         {
             lblEmptyHint.Visible = false;
             pnlItemList.Visible = true;
+            btnDelete.Enabled = true;
+            btnDelete.Text = _items.Count > 1 ? $"       Delete All ({_items.Count})" : "       Delete";
+            btnClear.Enabled = true;
 
             foreach (var item in _items)
             {
@@ -1204,6 +1233,7 @@ public partial class MainForm : Form
         }
 
         pnlItemList.ResumeLayout();
+        btnDelete.Invalidate();
         UpdateRecentPreviewCards();
     }
 
@@ -1434,17 +1464,12 @@ public partial class MainForm : Form
 
         await Task.Run(() =>
         {
-            for (int i = 0; i < totalCount; i++)
+            int completedCount = 0;
+            int maxDegree = swTurboMode.Checked ? Math.Clamp(Environment.ProcessorCount * 2, 4, 16) : 1;
+            var pOptions = new ParallelOptions { MaxDegreeOfParallelism = maxDegree };
+
+            Parallel.ForEach(itemsToProcess, pOptions, item =>
             {
-                var item = itemsToProcess[i];
-                float pct = ((float)(i + 1) / totalCount) * 100f;
-
-                this.BeginInvoke(new Action(() =>
-                {
-                    progressRing.StatusText = $"Deleting {item.Name}...";
-                    progressRing.Progress = pct;
-                }));
-
                 var res = ForceDeleteEngine.ForceDelete(
                     item.FullPath, 
                     killLockingProcesses: swRemoveLocked.Checked, 
@@ -1456,27 +1481,41 @@ public partial class MainForm : Form
 
                 if (ok)
                 {
-                    successCount++;
-                    successBytes += item.FileSizeBytes;
+                    Interlocked.Increment(ref successCount);
+                    Interlocked.Add(ref successBytes, item.FileSizeBytes);
                 }
                 else
                 {
-                    failedCount++;
-                    failedBytes += item.FileSizeBytes;
+                    Interlocked.Increment(ref failedCount);
+                    Interlocked.Add(ref failedBytes, item.FileSizeBytes);
                 }
 
-                // Add to history
-                _history.Insert(0, new HistoryRecord
+                // Add to history (thread-safe)
+                lock (_history)
                 {
-                    Name = item.Name,
-                    FullPath = item.FullPath,
-                    IsDirectory = item.IsDirectory,
-                    FileType = item.FileType,
-                    FileCount = 1,
-                    TotalSizeBytes = item.FileSizeBytes,
-                    IsSuccessful = ok
-                });
-            }
+                    _history.Insert(0, new HistoryRecord
+                    {
+                        Name = item.Name,
+                        FullPath = item.FullPath,
+                        IsDirectory = item.IsDirectory,
+                        FileType = item.FileType,
+                        FileCount = 1,
+                        TotalSizeBytes = item.FileSizeBytes,
+                        IsSuccessful = ok
+                    });
+                }
+
+                int currentDone = Interlocked.Increment(ref completedCount);
+                float pct = ((float)currentDone / totalCount) * 100f;
+
+                this.BeginInvoke(new Action(() =>
+                {
+                    progressRing.StatusText = totalCount > 1 
+                        ? $"Deleting ({currentDone}/{totalCount}) {item.Name}..."
+                        : $"Deleting {item.Name}...";
+                    progressRing.Progress = pct;
+                }));
+            });
         });
 
         // Finished state update
@@ -1502,14 +1541,13 @@ public partial class MainForm : Form
     {
         using var ofd = new OpenFileDialog
         {
-            Title = "삭제할 파일 선택 (다중 선택 가능)",
+            Title = "삭제할 파일 선택 (다중 파일 동시 선택 가능 - Ctrl/Shift 키)",
             Multiselect = true,
             Filter = "모든 파일 (*.*)|*.*"
         };
         if (ofd.ShowDialog(this) == DialogResult.OK)
         {
-            foreach (var f in ofd.FileNames)
-                AddTargetItem(f);
+            AddTargetItems(ofd.FileNames);
             SwitchTab(AppTab.Delete);
         }
     }
@@ -1684,10 +1722,9 @@ public partial class MainForm : Form
         if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
         {
             var files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
-            if (files != null)
+            if (files != null && files.Length > 0)
             {
-                foreach (var f in files)
-                    AddTargetItem(f);
+                AddTargetItems(files);
                 SwitchTab(AppTab.Delete);
             }
         }

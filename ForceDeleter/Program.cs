@@ -42,8 +42,16 @@ internal static class Program
             {
                 if (args.Length > 1)
                 {
-                    var res = ForceDeleteEngine.ForceDelete(args[1], true, false, true, Console.WriteLine);
-                    Environment.ExitCode = res.Status == DeleteResultStatus.Success ? 0 : 1;
+                    var targets = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Skip(args, 1));
+                    Console.WriteLine($"[ForceDeleter CLI] Multi-file batch deletion started for {targets.Length} targets...");
+                    int failed = 0;
+                    System.Threading.Tasks.Parallel.ForEach(targets, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount * 2, 4, 16) }, target =>
+                    {
+                        var res = ForceDeleteEngine.ForceDelete(target, true, false, true, Console.WriteLine);
+                        if (res.Status == DeleteResultStatus.Failed)
+                            System.Threading.Interlocked.Increment(ref failed);
+                    });
+                    Environment.ExitCode = (failed == 0) ? 0 : 1;
                     return;
                 }
             }
