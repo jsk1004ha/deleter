@@ -26,6 +26,9 @@ public static class ContextMenuHelper
         }
     }
 
+    public static bool RegisterContextMenu(Action<string>? log = null) => InstallContextMenu(log);
+    public static bool UnregisterContextMenu(Action<string>? log = null) => UninstallContextMenu(log);
+
     public static bool InstallContextMenu(Action<string>? log = null)
     {
         try

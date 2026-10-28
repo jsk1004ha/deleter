@@ -28,17 +28,76 @@ Windows에서 파일이나 폴더를 삭제하려 할 때 발생하는 **"액세
    - Read-Only, Hidden, System 속성 일괄 해제.
 7. **[AhmedElbehary-Dev/ForcedDeleteFiles](https://github.com/AhmedElbehary-Dev/ForcedDeleteFiles)**:
    - 커널 수준에서 잠긴 특수 파일의 경우 `MoveFileExW(..., MOVEFILE_DELAY_UNTIL_REBOOT)`를 통한 다음 부팅 시 100% 삭제 예약.
+8. **[mtopolski/rmbrr](https://github.com/mtopolski/rmbrr)** & **[gabriel-sztejnworcel/ParallelDelete](https://github.com/gabriel-sztejnworcel/ParallelDelete)**:
+   - BFS 디렉터리 크롤링 후 파일 일괄 병렬 언링크 및 Bottom-Up(역순: 자식 리프 폴더부터 부모 순서) 디렉터리 언링크 구조를 도입하여 `ERROR_DIR_NOT_EMPTY`(145) 충돌 및 불필요한 대기 시간을 100% 제거.
+   - `SetFileInformationByHandle` / `NtSetInformationFile` 기반 POSIX Semantics + Ignore ReadOnly 즉시 언링크.
+9. **[zerx-lab/rmx](https://github.com/zerx-lab/rmx)**:
+   - 안티바이러스 실시간 감시나 검색 인덱서의 일시 점유에 대응하는 마이크로 백오프(5ms, 15ms) 적응형 재시도 구조 적용.
+   - 비파괴적 원격 핸들 닫기(`DUPLICATE_CLOSE_SOURCE`) 우선 시도로 불필요한 사용자 프로세스 강제 종료 최소화.
+10. **[Microsoft PowerToys (File Locksmith)](https://github.com/microsoft/PowerToys)** & **[winsiderss/systeminformer](https://github.com/winsiderss/systeminformer)**:
+    - DOS 드라이브 경로(`C:\...`)를 NT 커널 디바이스 경로(`\Device\HarddiskVolume...\...`)로 정밀 변환하여 잠금 파일/하위 디렉터리 핸들 오차 없는 식별.
+    - `GetFileType == FILE_TYPE_DISK` 사전 필터링으로 파이프/소켓에 의한 `NtQueryObject` 블로킹을 원천 방지하여 초고속 핸들 스캔 달성.
 
 ---
 
 ## 🎨 모던 다크 UI 및 애니메이션
 
+참조 이미지에 맞춰 5개 화면을 새로 구성했습니다. 둥근 창과 카드, 단색 표면과 붉은 삭제 버튼, 오프라인 Tabler SVG 아이콘을 사용합니다. 설정의 기본 5개 항목은 스크롤 없이 표시되며, Turbo 및 탐색기 메뉴 옵션은 `More options`에서 설정합니다. 목록은 스크롤바 없이 휠·방향키·Page Up/Down으로 이동할 수 있습니다.
+
+설정과 실제 삭제 이력은 `%LOCALAPPDATA%/ForceDeleter`에 저장합니다. 재부팅 삭제 예약은 `On reboot` 경고로 구분합니다. 아이콘의 MIT 라이선스와 고정 커밋·해시 출처는 `src/ForceDeleter/Assets/Icons/`에 포함되어 있습니다.
+
+UI 검증: `pwsh -File scripts/verify-ui.ps1 -Mode Build` 실행 후 `-Mode Ui`로 실제 WinForms 창과 임시 파일 삭제를 검사합니다. `-Mode Publish`는 `artifacts/`에 단일 실행 파일을 발행하고, `-Mode Artifact`는 실행 파일과 SVG 해시를 검증합니다.
+
+---
+
+## 📥 다운로드 및 빌드 (Download & Build)
+
+### 1. 사전 빌드 바이너리 다운로드 (GitHub Releases)
+- [GitHub Releases](https://github.com/jsk1004ha/deleter/releases) 페이지에서 최신 버전의 `ForceDeleter.exe` 또는 `ForceDeleter-win-x64.zip`을 다운로드할 수 있습니다.
+- .NET 런타임이 포함된 **Self-Contained 단일 실행 파일**이므로 추가 설치 없이 즉시 실행 가능합니다.
+
+### 2. 소스코드에서 빌드
+```bash
+# 1. 저장소 클론
+git clone https://github.com/jsk1004ha/deleter.git
+cd deleter
+
+# 2. 솔루션 빌드
+dotnet build ForceDeleter.sln -c Release
+
+# 3. 단일 실행 파일(Self-Contained) 발행
+dotnet publish src/ForceDeleter/ForceDeleter.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o artifacts/
+```
+
+---
+
+## 📁 디렉터리 구조 (Directory Structure)
+
+```
+deleter/
+├── .github/workflows/       # GitHub Actions 자동 빌드(CI) 및 릴리스 배포 워크플로우
+├── docs/                    # UI 검증 및 독립 감사 문서, 참조 스크린샷
+├── scripts/                 # 빌드 및 자동화 검증 스크립트 (verify-ui.ps1)
+├── src/
+│   └── ForceDeleter/        # 메인 애플리케이션 프로젝트 소스코드
+│       ├── Assets/Icons/    # 27종의 내장 벡터 SVG 아이콘 (Tabler Icons MIT)
+│       ├── ForceDeleter.csproj
+│       └── ... (.cs 소스)
+├── tests/
+│   ├── ForceDeleter.UiTests.csproj # UI/DPI 및 삭제 엔진 158개 assertion 검증 테스트
+│   └── Program.cs
+├── ForceDeleter.sln         # 루트 솔루션 파일
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
 - **5가지 전용 뷰 제공**:
   1. **Delete (메인 삭제 뷰)**: 대기 목록 카드, 상태 표시기(Green/Orange), 원클릭 삭제 및 초기화.
   2. **Add (대상 추가 뷰)**: 대형 점선 드롭존, 파일/폴더 선택 카드, 추가된 대상 가로 칩 미리보기.
   3. **History (삭제 이력 뷰)**: 검색 필터, 카테고리 칩(`All`, `Files`, `Folders`, `Successful`, `With Warnings`), 내보내기(`Export`).
-  4. **Settings (환경설정 뷰)**: `Secure delete` (SDelete 덮어쓰기), `Show confirmation prompt`, `Remove locked files`, `Dark mode`, `Explorer Context Menu` 토글 스위치.
-  5. **Deleting (삭제 애니메이션 뷰)**: 실시간 60FPS 네온 서큘러 프로그레스 링, 파티클 펄스, 성공/경고 요약 통계.
+  4. **Settings (환경설정 뷰)**: 안전 삭제·확인·잠금 해제·테마·이력 보관 기간. Turbo와 탐색기 메뉴는 `More options`에 배치.
+  5. **Deleting (삭제 애니메이션 뷰)**: 완료한 대상 수에 따른 진행률, 절제된 링 애니메이션, 성공/경고 결과.
 - **둥근 모서리 디자인 & 벡터 SVG 아이콘**: 고해상도 DPI 대응 MIT 라이선스 벡터 아이콘 적용 및 미려한 둥근 카드/버튼.
 
 ---

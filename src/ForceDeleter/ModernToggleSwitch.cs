@@ -37,6 +37,9 @@ public class ModernToggleSwitch : Control
         this.DoubleBuffered = true;
         this.Size = new Size(46, 24);
         this.Cursor = Cursors.Hand;
+        this.BackColor = Color.Transparent;
+        this.TabStop = true;
+        this.AccessibleRole = AccessibleRole.CheckButton;
 
         _animTimer = new System.Windows.Forms.Timer { Interval = 15 };
         _animTimer.Tick += (s, e) =>
@@ -58,6 +61,12 @@ public class ModernToggleSwitch : Control
         Checked = !Checked;
     }
 
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.KeyCode == Keys.Space) { Checked = !Checked; e.Handled = true; }
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
@@ -69,7 +78,7 @@ public class ModernToggleSwitch : Control
         // Background pill
         Color trackColor = _checked
             ? UITheme.AccentRed
-            : Color.FromArgb(45, 52, 70);
+            : UITheme.Dark ? Color.FromArgb(46, 52, 66) : Color.FromArgb(200, 206, 218);
 
         using (var path = UITheme.GetRoundedPath(rect, radius))
         using (var brush = new SolidBrush(trackColor))

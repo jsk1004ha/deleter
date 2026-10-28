@@ -4,6 +4,8 @@
 BuildOutput/
 ReleaseExe/
 publish/
+artifacts/
+*.exe
 
 ## Visual Studio & Rider
 .vs/

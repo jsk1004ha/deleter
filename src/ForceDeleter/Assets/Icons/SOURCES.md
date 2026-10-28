@@ -1,0 +1,46 @@
+# Tabler icon sources
+
+These assets come from [Tabler Icons](https://github.com/tabler/tabler-icons) at commit
+`a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d` and are distributed under the bundled MIT license.
+
+Outline source base:
+`https://raw.githubusercontent.com/tabler/tabler-icons/a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d/icons/outline/`
+
+Filled source base:
+`https://raw.githubusercontent.com/tabler/tabler-icons/a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d/icons/filled/`
+
+License source:
+`https://raw.githubusercontent.com/tabler/tabler-icons/a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d/LICENSE`
+
+SHA-256 checksums:
+
+```text
+25b1f0c39f34647017df84a0cdc9e691c697737094a5956c360ab448a7fd5bef  alert-triangle.svg
+e206067a7d570997b5b3a7d30ab287c0b15a492787649a8b96dff8fad2862fbe  check.svg
+5a2e5c2a155ce06264a3f7299073ed636142dfd0b324b747387d9cfbf9fb5e3e  chevron-down.svg
+83733bb6e03e1d20fd2674d06a493642c8ea6eef76c44ebb2239b9ef17dedff7  chevron-right.svg
+4e00221bc8bce904490eedf74d0842ccd2d475a93887cce4002fa4be9dac1a06  circle-plus-filled.svg (source: circle-plus.svg)
+971b0b2d3b5b17ae240cd3aac1a09710ab680d8c41900f1a37a0e430994d7fda  clock.svg
+332fb64778e96e0de3ef6a4262baa8bf2c1983d478bb14d284c4a2450f9e0130  device-floppy.svg
+798ff2bd35fdb045535872ed5d5e93e39a289c6fd0faaf01639ae84180e54dae  dots.svg
+c13f6f9cf87deee99e331622169efd59cd764b376994540347e50d6bb5e2e0ef  download.svg
+48e5909ec799b544ba307e7c26fd870df0cc6ae78c0e42dc774f8385fe8fd968  file-filled.svg (source: file.svg)
+0dc8b74962e79d9e5aed2496bfe3542d87ab4eca21ca8a22c0c5579d0fffb740  file-zip.svg
+c3995cdcfc6b74ff439efd5a8817c14ac4f821ae4435c0d2e6c021e3f39a6808  file.svg
+ab5483785164f8df172e7ca0c4b47ed567915d8bde9eef025f571a82bd54886b  folder-filled.svg (source: folder.svg)
+4b7233a0271301e0e6fe0f9734881e8687c549b85cb451b7b71d11c90f5424f1  folder-up.svg
+acdf398775addb8104673e5a8ef29d01d40184c6a5b3c62a93f10309cf9ef253  folder.svg
+b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db  LICENSE
+407856048124fdd63239f75a3640ca8f20a9acbc1f49cac9de0bcdb1cb42ec5f  lock.svg
+a6556d9c556316b946c28af277be016b4d56ad8618dc2a731ce455100438c0ea  minus.svg
+7cabaae40eea65310da478d3cad30b23cf1d7e99adad56378f82824338079668  moon.svg
+67d9b3ec02867e98ad17739380919a2d82287d15d3463161f450e17047ed319b  photo.svg
+9cc497d4cc1eb38cf9daae18f41ffdc1a5e2a8431d70247b0854978f303f28d6  plus.svg
+3dd53b9606283dfa0adcb0b10a7d9a4432369d4bebcfacf67f80fbe358381c34  search.svg
+ef9cf42d822c00b4fad5bc5eeceddd4e1ec3774bb7ddd09891d0fba274bc3e95  settings.svg
+254faf50fe337be66083b5292d7a1d548bb24289a26a3496e367ea341c7869da  shield.svg
+03f16281a365e8e68f5d084342c9f7b0c04b02f0ddf79668adb3247f83f662d4  square.svg
+4b90fa07a6d980736951d9e83b91432972b2bcecf81be4578608a0983f2ebc9d  trash.svg
+8e6f247503da3f943a6751c2859c63cac81d8f2f6b66cf3baac6beb57a33ca01  upload.svg
+9350785360414c39450c3505f17d1745e55a7534edace8548e30cf49e3727d43  x.svg
+```

@@ -1,0 +1,12 @@
+{
+  "batch": ".adhd/batches/f0517dbf36a649a7987f815567bd1681/report.json",
+  "source_manifest": ".adhd/review-manifest.json",
+  "reviewer": "/root/final_review",
+  "ui_assertions_96_logical_dpi": 158,
+  "reviewed_files": 13,
+  "verdict": "approve_artifact",
+  "native_acceptance": "unavailable: externally deleted original coding-scope baseline",
+  "executable_sha256": "3ee62ecfe8a9c13d89dada6d9f11f034caa16779f1388f37a8040d2362953ef0",
+  "findings": [],
+  "ui_assertions_150_percent": 158
+}

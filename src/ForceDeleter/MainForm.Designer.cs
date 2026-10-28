@@ -18,8 +18,9 @@ partial class MainForm
         this.components = new System.ComponentModel.Container();
         this.SuspendLayout();
 
+        this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
         this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-        this.ClientSize = new System.Drawing.Size(820, 600);
+        this.ClientSize = new System.Drawing.Size(930, 630);
         this.MinimumSize = new System.Drawing.Size(740, 520);
         this.Text = "Delete";
         this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;

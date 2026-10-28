@@ -18,8 +18,15 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <TieredCompilation>true</TieredCompilation>
-    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Icons\*.svg" />
+    <EmbeddedResource Include="Assets\Icons\LICENSE" />
+    <EmbeddedResource Include="Assets\Icons\SOURCES.md" />
+  </ItemGroup>
 
 </Project>

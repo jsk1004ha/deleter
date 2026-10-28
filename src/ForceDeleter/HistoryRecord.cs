@@ -12,6 +12,7 @@ public class HistoryRecord
     public int FileCount { get; set; } = 1;
     public long TotalSizeBytes { get; set; }
     public bool IsSuccessful { get; set; } = true;
-    public string StatusText => IsSuccessful ? "Deleted" : "Partial";
+    public bool IsScheduled { get; set; }
+    public string StatusText => IsScheduled ? "On reboot" : IsSuccessful ? "Deleted" : "Partial";
     public string Details { get; set; } = "";
 }

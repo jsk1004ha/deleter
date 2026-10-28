@@ -64,25 +64,37 @@ internal static class NativeMethods
     public const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
     public const uint FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
 
-    public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     public const uint FILE_ATTRIBUTE_READONLY = 0x01;
     public const uint FILE_ATTRIBUTE_HIDDEN = 0x02;
     public const uint FILE_ATTRIBUTE_SYSTEM = 0x04;
     public const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
+    public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
+    public const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x0400;
+    public const uint INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF;
 
+    public const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
     public const uint MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004;
+    public const uint MOVEFILE_WRITE_THROUGH = 0x00000008;
+
+    public const uint FILE_TYPE_UNKNOWN = 0x0000;
+    public const uint FILE_TYPE_DISK = 0x0001;
+    public const uint FILE_TYPE_CHAR = 0x0002;
+    public const uint FILE_TYPE_PIPE = 0x0003;
 
     // ==========================================
     // NtSetInformationFile & NT Status
     // ==========================================
     public const uint FileDispositionInformation = 13;
     public const uint FileDispositionInformationEx = 64;
+    public const int FileDispositionInfoEx = 21;
     public const uint FILE_DISPOSITION_FLAG_DELETE = 0x1;
     public const uint FILE_DISPOSITION_FLAG_POSIX_SEMANTICS = 0x2;
     public const uint FILE_DISPOSITION_FLAG_FORCE_IMAGE_SECTION_CHECK = 0x4;
     public const uint FILE_DISPOSITION_FLAG_ON_CLOSE = 0x8;
+    public const uint FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE = 0x10;
 
     public const int SystemHandleInformation = 16;
+    public const int SystemExtendedHandleInformation = 64;
     public const int ObjectNameInformation = 1;
     public const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
     public const int STATUS_SUCCESS = 0;
@@ -173,6 +185,25 @@ internal static class NativeMethods
         public ushort HandleValue;
         public IntPtr Object;
         public uint GrantedAccess;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX
+    {
+        public IntPtr Object;
+        public IntPtr UniqueProcessId;
+        public IntPtr HandleValue;
+        public uint GrantedAccess;
+        public ushort CreatorBackTraceIndex;
+        public ushort ObjectTypeIndex;
+        public uint HandleAttributes;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FILE_DISPOSITION_INFO_EX
+    {
+        public uint Flags;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -312,6 +343,20 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DeleteFileW(string lpFileName);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern uint QueryDosDeviceW(string lpDeviceName, [Out] System.Text.StringBuilder lpTargetPath, uint ucchMax);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint GetFileType(IntPtr hFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+        IntPtr hFile,
+        int FileInformationClass,
+        ref FILE_DISPOSITION_INFO_EX lpFileInformation,
+        uint dwBufferSize);
 
     // ==========================================
     // DLL Imports: ntdll.dll
