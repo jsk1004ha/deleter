@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using ForceDeleter;
 
 internal static class UiTests
@@ -70,9 +72,23 @@ internal static class UiTests
         Check(Find(form, "Delete").Enabled == false, "Empty queue disables Delete");
         Check(Get<AppState>(form, "_state").History.Count == 0, "New installs show no fabricated deletion history");
         Snapshot(form, "00-empty.png");
-        foreach (var path in paths) form.AddTargetItem(path);
+        form.AddTargetItems([
+            paths[0], paths[0].ToUpperInvariant(), $"\"{paths[1]}\"", paths[2],
+            Path.GetRelativePath(Environment.CurrentDirectory, paths[2]), paths[3], paths[3], " "
+        ]);
         form.AddTargetItem(paths[0]);
         form.AddTargetItem(Path.Combine(fixture, "missing"));
+        Check(Get<List<TargetItem>>(form, "_items").Select(i => i.FullPath).SequenceEqual(paths),
+            "Batch additions preserve order and ignore case, quoted and relative duplicates");
+        int enumerations = 0;
+        IEnumerable<string> StreamTargets()
+        {
+            enumerations++;
+            foreach (string path in paths) yield return path;
+        }
+        form.AddTargetItems(StreamTargets());
+        Check(enumerations == 1 && Get<List<TargetItem>>(form, "_items").Count == paths.Length,
+            "Streamed targets are enumerated once and ignore existing queue entries");
         Pump();
         Check(Get<List<TargetItem>>(form, "_items").Count == 4, "Duplicate and missing targets ignored");
         Check(Find(form, "Delete").Enabled, "Real file and folder queue enables Delete");
@@ -142,6 +158,7 @@ internal static class UiTests
         Check(MainForm.HistoryCsv([schedule]).Contains("\"a,\"\"b\""), "CSV escapes commas and quotes");
         Check(MainForm.FormatSize(long.MaxValue).EndsWith("EB"), "Large file sizes do not overflow units");
         TestRetention(fixture);
+        TestPersistenceCompatibility(fixture);
         // Real drag/drop event path, with only fixture files as payload.
         File.WriteAllText(paths[0], "second pass");
         var data = new DataObject(DataFormats.FileDrop, new[] { paths[0] });
@@ -226,6 +243,38 @@ internal static class UiTests
         state.History.Add(new HistoryRecord { Timestamp = DateTime.Now });
         state.Save();
         Check(state.History.Count == 1, "History retention prunes old records");
+    }
+
+    private static void TestPersistenceCompatibility(string fixture)
+    {
+        string folder = Path.Combine(fixture, "serialization");
+        var state = new AppState(folder);
+        state.Settings.RetentionDays = 0;
+        state.Settings.SecureDelete = true;
+        state.History.Add(new HistoryRecord
+        {
+            Timestamp = new DateTime(2026, 11, 3, 12, 34, 56, DateTimeKind.Utc),
+            Name = "문서,\"quoted\".txt", FullPath = @"C:\자료\문서.txt",
+            TotalSizeBytes = long.MaxValue, IsSuccessful = false, IsScheduled = true,
+            Details = "first line\r\nsecond line"
+        });
+        for (int pass = 0; pass < 2; pass++)
+        {
+            state.Settings.DarkMode = pass == 0;
+            state.History[0].Details += $"\npass {pass}";
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string settings = JsonSerializer.Serialize(state.Settings, options);
+            string history = JsonSerializer.Serialize(state.History, options);
+            state.Save();
+            Check(File.ReadAllBytes(Path.Combine(folder, "settings.json")).SequenceEqual(Encoding.UTF8.GetBytes(settings)),
+                $"Settings retain the existing UTF-8 JSON bytes on save {pass}");
+            Check(File.ReadAllBytes(Path.Combine(folder, "history.json")).SequenceEqual(Encoding.UTF8.GetBytes(history)),
+                $"History retains the existing UTF-8 JSON bytes on save {pass}");
+            var reopened = new AppState(folder);
+            Check(JsonSerializer.Serialize(reopened.Settings, options) == settings &&
+                  JsonSerializer.Serialize(reopened.History, options) == history,
+                $"Settings and history round-trip after repeated save {pass}");
+        }
     }
 
     private static void TestIcons()

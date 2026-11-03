@@ -8,6 +8,7 @@ public enum AppTab { Delete, Add, History, Settings, DeletingAnimation }
 
 public partial class MainForm : Form
 {
+    private static readonly string[] SizeUnits = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
     private readonly AppState _state;
     private readonly List<TargetItem> _items = [];
     private readonly Dictionary<AppTab, Panel> _views = [];
@@ -459,13 +460,20 @@ public partial class MainForm : Form
     {
         if (_busy) return;
         bool added = false;
+        // Single-item additions only need one scan; batches reuse a local path index.
+        HashSet<string>? existingPaths = paths is ICollection<string> { Count: <= 1 }
+            ? null
+            : new(_items.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase);
         foreach (string raw in paths)
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
             string path;
             try { path = Path.GetFullPath(raw.Trim('"', ' ')); }
             catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
-            if ((!File.Exists(path) && !Directory.Exists(path)) || _items.Any(i => string.Equals(i.FullPath, path, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!File.Exists(path) && !Directory.Exists(path)) continue;
+            if (existingPaths is null
+                ? _items.Any(i => string.Equals(i.FullPath, path, StringComparison.OrdinalIgnoreCase))
+                : !existingPaths.Add(path)) continue;
             var item = new TargetItem(path);
             _items.Add(item);
             added = true;
@@ -674,8 +682,9 @@ public partial class MainForm : Form
 
     private void UpdateResults()
     {
-        _success.Text = $"{_results.Count(r => r.IsSuccessful)} items deleted successfully";
-        _warning.Text = $"{_results.Count(r => !r.IsSuccessful)} items need attention";
+        int successful = _results.Count(r => r.IsSuccessful);
+        _success.Text = $"{successful} items deleted successfully";
+        _warning.Text = $"{_results.Count - successful} items need attention";
         _success.Invalidate(); _warning.Invalidate();
     }
 
@@ -813,10 +822,9 @@ public partial class MainForm : Form
 
     internal static string FormatSize(long bytes)
     {
-        string[] units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
         double value = Math.Max(0, bytes);
         int unit = 0;
-        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
-        return $"{value:0.#} {units[unit]}";
+        while (value >= 1024 && unit < SizeUnits.Length - 1) { value /= 1024; unit++; }
+        return $"{value:0.#} {SizeUnits[unit]}";
     }
 }

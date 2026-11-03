@@ -50,8 +50,7 @@ public static class ProcessUnlocker
 
                 if (!string.IsNullOrEmpty(ntDevice))
                 {
-                    string relative = fullPath.Substring(root.Length);
-                    return ntDevice + "\\" + relative.TrimStart('\\');
+                    return string.Concat(ntDevice.AsSpan(), "\\".AsSpan(), fullPath.AsSpan(root.Length).TrimStart('\\'));
                 }
             }
 
@@ -175,7 +174,7 @@ public static class ProcessUnlocker
     {
         var lockingProcesses = FindLockingProcesses(path, log);
         int killedCount = 0;
-        int currentPid = Process.GetCurrentProcess().Id;
+        int currentPid = Environment.ProcessId;
 
         foreach (var lockInfo in lockingProcesses)
         {
@@ -220,7 +219,9 @@ public static class ProcessUnlocker
         string targetNtDirPrefix = targetNtPath.EndsWith('\\') ? targetNtPath : targetNtPath + "\\";
 
         int closedCount = 0;
-        int currentPid = Process.GetCurrentProcess().Id;
+        int currentPid = Environment.ProcessId;
+        // The current-process pseudo-handle is stable and does not need to be closed.
+        IntPtr currentProcess = NativeMethods.GetCurrentProcess();
 
         int infoLength = 0x10000;
         IntPtr infoPtr = Marshal.AllocHGlobal(infoLength);
@@ -263,7 +264,7 @@ public static class ProcessUnlocker
                     if (NativeMethods.DuplicateHandle(
                             hProcess,
                             new IntPtr(entry.HandleValue),
-                            NativeMethods.GetCurrentProcess(),
+                            currentProcess,
                             out IntPtr hDup,
                             0, false, NativeMethods.DUPLICATE_SAME_ACCESS))
                     {
@@ -335,7 +336,8 @@ public static class ProcessUnlocker
         bool isDirectory = Directory.Exists(targetPath);
         string targetNtDirPrefix = targetNtPath.EndsWith('\\') ? targetNtPath : targetNtPath + "\\";
 
-        int currentPid = Process.GetCurrentProcess().Id;
+        int currentPid = Environment.ProcessId;
+        IntPtr currentProcess = NativeMethods.GetCurrentProcess();
         int infoLength = 0x10000;
         IntPtr infoPtr = Marshal.AllocHGlobal(infoLength);
         int returnLength = 0;
@@ -378,7 +380,7 @@ public static class ProcessUnlocker
                     if (NativeMethods.DuplicateHandle(
                             hProcess,
                             new IntPtr(entry.HandleValue),
-                            NativeMethods.GetCurrentProcess(),
+                            currentProcess,
                             out IntPtr hDup,
                             0, false, NativeMethods.DUPLICATE_SAME_ACCESS))
                     {

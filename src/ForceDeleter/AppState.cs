@@ -27,6 +27,7 @@ public sealed class AppSettings
 
 internal sealed class AppState
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly string _directory;
     public AppSettings Settings { get; private set; } = new();
     public List<HistoryRecord> History { get; private set; } = [];
@@ -63,7 +64,7 @@ internal sealed class AppState
     {
         string path = Path.Combine(_directory, name);
         string temporary = path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(temporary, JsonSerializer.Serialize(value, JsonOptions));
         File.Move(temporary, path, true);
     }
 }
