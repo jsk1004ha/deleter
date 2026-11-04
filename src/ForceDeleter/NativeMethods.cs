@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace ForceDeleter;
 
@@ -51,6 +52,7 @@ internal static class NativeMethods
     public const uint SYNCHRONIZE = 0x00100000;
     public const uint GENERIC_READ = 0x80000000;
     public const uint GENERIC_WRITE = 0x40000000;
+    public const uint FILE_READ_ATTRIBUTES = 0x00000080;
     public const uint GENERIC_ALL = 0x10000000;
 
     public const uint FILE_SHARE_READ = 0x00000001;
@@ -63,6 +65,8 @@ internal static class NativeMethods
     public const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
     public const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
     public const uint FILE_FLAG_DELETE_ON_CLOSE = 0x04000000;
+    public const uint FILE_FLAG_WRITE_THROUGH = 0x80000000;
+    public const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
 
     public const uint FILE_ATTRIBUTE_READONLY = 0x01;
     public const uint FILE_ATTRIBUTE_HIDDEN = 0x02;
@@ -71,6 +75,17 @@ internal static class NativeMethods
     public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     public const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x0400;
     public const uint INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF;
+    public const int ERROR_FILE_NOT_FOUND = 2;
+    public const int ERROR_PATH_NOT_FOUND = 3;
+    public const int ERROR_ACCESS_DENIED = 5;
+    public const int FileAttributeTagInfo = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FILE_ATTRIBUTE_TAG_INFO
+    {
+        public uint FileAttributes;
+        public uint ReparseTag;
+    }
 
     public const uint MOVEFILE_REPLACE_EXISTING = 0x00000001;
     public const uint MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004;
@@ -331,6 +346,12 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern uint GetFileAttributesW(string lpFileName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandleEx(
+        SafeFileHandle hFile, int fileInformationClass,
+        out FILE_ATTRIBUTE_TAG_INFO fileInformation, uint bufferSize);
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]

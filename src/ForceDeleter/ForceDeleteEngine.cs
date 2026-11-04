@@ -1,10 +1,12 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace ForceDeleter;
 
@@ -83,13 +85,12 @@ public static class ForceDeleteEngine
         string fullPath = Path.GetFullPath(targetPath);
         string longPath = SecurityManager.ToLongPath(fullPath);
 
-        uint attrs = NativeMethods.GetFileAttributesW(longPath);
+        uint attrs = GetAttributesWithAccessRecovery(longPath, log, out int attributeError);
         if (attrs == NativeMethods.INVALID_FILE_ATTRIBUTES)
         {
-            result.Status = DeleteResultStatus.Success;
-            result.Message = "File or folder does not exist (already deleted).";
-            result.Tier = 0;
-            return result;
+            return IsMissingError(attributeError)
+                ? new DeleteResult(DeleteResultStatus.Success, "File or folder does not exist (already deleted).", 0)
+                : AttributeReadFailure(fullPath, attributeError);
         }
 
         bool isDirectory = (attrs & NativeMethods.FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -158,6 +159,9 @@ public static class ForceDeleteEngine
         uint postAttrs = NativeMethods.GetFileAttributesW(postCheckPath);
         if (postAttrs == NativeMethods.INVALID_FILE_ATTRIBUTES)
         {
+            int postError = Marshal.GetLastWin32Error();
+            if (!IsMissingError(postError))
+                return AttributeReadFailure(workingPath, postError);
             log?.Invoke("[✓] Directory completely wiped.");
             result.Status = DeleteResultStatus.Success;
             result.Message = "Directory tree deleted at high speed.";
@@ -466,7 +470,7 @@ public static class ForceDeleteEngine
             else
                 File.Delete(targetPath);
 
-            if (!Exists(targetPath))
+            if (IsMissing(targetPath))
             {
                 return new DeleteResult(DeleteResultStatus.Success, "Deleted via standard method.", 1)
                 {
@@ -484,7 +488,7 @@ public static class ForceDeleteEngine
             SecurityManager.TakeOwnershipAndGrantFullControl(longPath, log);
 
             bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
-            if (delOk || !Exists(targetPath))
+            if (delOk || IsMissing(targetPath))
             {
                 log?.Invoke($"[✓ Tier 2] Deleted via in-process ACL bypass: {Path.GetFileName(targetPath)}");
                 return new DeleteResult(DeleteResultStatus.Success, "Deleted after taking ownership and resetting attributes.", 2)
@@ -507,7 +511,7 @@ public static class ForceDeleteEngine
                 return isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
             }, null);
 
-            if (tier3Success || !Exists(targetPath))
+            if (tier3Success || IsMissing(targetPath))
             {
                 log?.Invoke($"[✓ Tier 3] Deleted under TrustedInstaller authority: {Path.GetFileName(targetPath)}");
                 return new DeleteResult(DeleteResultStatus.Success, "Deleted using TrustedInstaller privilege escalation.", 3)
@@ -527,7 +531,7 @@ public static class ForceDeleteEngine
             {
                 log?.Invoke($"[+] Closed {closedHandles} remote handle(s) for {Path.GetFileName(targetPath)}");
                 bool delAfterClose = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
-                if (delAfterClose || !Exists(targetPath))
+                if (delAfterClose || IsMissing(targetPath))
                 {
                     log?.Invoke($"[✓ Tier 4] Deleted after closing remote handles without killing process: {Path.GetFileName(targetPath)}");
                     return new DeleteResult(DeleteResultStatus.Success, "Deleted after closing remote handles.", 4)
@@ -546,7 +550,7 @@ public static class ForceDeleteEngine
             }
 
             bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
-            if (delOk || !Exists(targetPath))
+            if (delOk || IsMissing(targetPath))
             {
                 log?.Invoke($"[✓ Tier 4] Deleted after unlocking handles/processes: {Path.GetFileName(targetPath)}");
                 return new DeleteResult(DeleteResultStatus.Success, "Deleted after unlocking processes and handles.", 4)
@@ -563,7 +567,7 @@ public static class ForceDeleteEngine
         {
             try
             {
-                if (LowLevelNtDelete(longPath, log) || !Exists(targetPath))
+                if (LowLevelNtDelete(longPath, log) || IsMissing(targetPath))
                 {
                     log?.Invoke($"[✓ Tier 5] Deleted using NT POSIX semantics: {Path.GetFileName(targetPath)}");
                     return new DeleteResult(DeleteResultStatus.Success, "Deleted using low-level NT kernel disposition.", 5)
@@ -589,7 +593,7 @@ public static class ForceDeleteEngine
                 {
                     targetForReboot = longTemp;
                     bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(targetForReboot) : NativeMethods.DeleteFileW(targetForReboot);
-                    if (delOk || !Exists(tempName))
+                    if (delOk || IsMissing(tempName))
                     {
                         log?.Invoke($"[✓ Tier 6] Deleted after renaming: {Path.GetFileName(targetPath)}");
                         return new DeleteResult(DeleteResultStatus.Success, "Deleted successfully after renaming.", 6)
@@ -626,18 +630,32 @@ public static class ForceDeleteEngine
             string longPath = SecurityManager.ToLongPath(filePath);
             SecurityManager.ClearAttributes(longPath);
 
+            // Inspect the opened object, not the path before opening it: a file link
+            // must never redirect a secure overwrite to an unselected target.
+            using var handle = new SafeFileHandle(NativeMethods.CreateFileW(
+                longPath, NativeMethods.GENERIC_WRITE | NativeMethods.FILE_READ_ATTRIBUTES, NativeMethods.FILE_SHARE_ALL,
+                IntPtr.Zero, NativeMethods.OPEN_EXISTING,
+                NativeMethods.FILE_FLAG_OPEN_REPARSE_POINT | NativeMethods.FILE_FLAG_WRITE_THROUGH |
+                    NativeMethods.FILE_FLAG_SEQUENTIAL_SCAN,
+                IntPtr.Zero), ownsHandle: true);
+            if (handle.IsInvalid)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!NativeMethods.GetFileInformationByHandleEx(handle,
+                    NativeMethods.FileAttributeTagInfo, out NativeMethods.FILE_ATTRIBUTE_TAG_INFO info,
+                    (uint)Marshal.SizeOf<NativeMethods.FILE_ATTRIBUTE_TAG_INFO>()))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if ((info.FileAttributes & NativeMethods.FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+            {
+                log?.Invoke("[ReparsePoint] Skipped content overwrite; only the file link will be removed.");
+                return;
+            }
+
             byte[] rentedBuffer = ArrayPool<byte>.Shared.Rent(SecureWipeBufferSize);
             Array.Clear(rentedBuffer, 0, SecureWipeBufferSize);
 
             try
             {
-                using var fs = new FileStream(
-                    longPath,
-                    FileMode.Open,
-                    FileAccess.Write,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    bufferSize: 4096,
-                    FileOptions.WriteThrough | FileOptions.SequentialScan);
+                using var fs = new FileStream(handle, FileAccess.Write, bufferSize: 4096);
 
                 long length = fs.Length;
                 if (length > 0)
@@ -749,8 +767,32 @@ public static class ForceDeleteEngine
         }
     }
 
-    private static bool Exists(string path)
+    private static bool IsMissingError(int error) =>
+        error is NativeMethods.ERROR_FILE_NOT_FOUND or NativeMethods.ERROR_PATH_NOT_FOUND;
+
+    private static bool IsMissing(string path)
     {
-        return File.Exists(path) || Directory.Exists(path);
+        uint attributes = NativeMethods.GetFileAttributesW(SecurityManager.ToLongPath(path));
+        return attributes == NativeMethods.INVALID_FILE_ATTRIBUTES && IsMissingError(Marshal.GetLastWin32Error());
     }
+
+    private static uint GetAttributesWithAccessRecovery(string path, Action<string>? log, out int error)
+    {
+        uint attributes = NativeMethods.GetFileAttributesW(path);
+        error = attributes == NativeMethods.INVALID_FILE_ATTRIBUTES ? Marshal.GetLastWin32Error() : 0;
+        if (error == NativeMethods.ERROR_ACCESS_DENIED)
+        {
+            // The target type is unknown until this succeeds. Recover permissions
+            // before choosing the file/directory pipeline, without assuming absence.
+            SecurityManager.TakeOwnershipAndGrantFullControl(path, log);
+            attributes = NativeMethods.GetFileAttributesW(path);
+            error = attributes == NativeMethods.INVALID_FILE_ATTRIBUTES ? Marshal.GetLastWin32Error() : 0;
+        }
+        return attributes;
+    }
+
+    private static DeleteResult AttributeReadFailure(string path, int error) =>
+        new(DeleteResultStatus.Failed,
+            $"Cannot verify target attributes: {path} (Win32 {error}: {new Win32Exception(error).Message}).", 0)
+        { FailedItems = 1 };
 }
