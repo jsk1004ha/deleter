@@ -36,7 +36,7 @@ internal static class EngineTests
             CheckOrdinaryFile(root);
             CheckMissingAndInvalidPaths(root);
             CheckOverwriteRetryAfterPermissionRecovery(root);
-            CheckDirectoryFallbackAfterScanFailure(root);
+            WithoutBackupPrivilege(() => CheckDirectoryFallbackAfterScanFailure(root));
             Console.WriteLine("PASS: link safety, overwrite outcomes, parallel aggregation, permission retries, directory fallback, and history reporting.");
             return 0;
         }
@@ -283,28 +283,87 @@ internal static class EngineTests
             DirectorySecurity deniedAcl = directory.GetAccessControl();
             deniedAcl.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny));
             directory.SetAccessControl(deniedAcl);
+            uint attributes = NativeMethods.GetFileAttributesW(SecurityManager.ToLongPath(folder));
+            Require(attributes != NativeMethods.INVALID_FILE_ATTRIBUTES,
+                "The scan fixture must permit attribute inspection without early ACL recovery.");
             IntPtr find = NativeMethods.FindFirstFileExW(SecurityManager.ToLongPath(folder) + "\\*",
                 NativeMethods.FindExInfoBasic, out _, NativeMethods.FindExSearchNameMatch, IntPtr.Zero, NativeMethods.FIND_FIRST_EX_LARGE_FETCH);
             int error = Marshal.GetLastWin32Error();
             if (find != NativeMethods.INVALID_HANDLE_VALUE && find != IntPtr.Zero) NativeMethods.FindClose(find);
             Require(find == NativeMethods.INVALID_HANDLE_VALUE && error == NativeMethods.ERROR_ACCESS_DENIED,
-                "The fixture must deny the initial directory scan.");
+                $"The fixture must deny the initial directory scan (handle={find}, Win32 {error}).");
+            var trace = new List<string>();
             bool sawTruncation = false;
             DeleteResult result = ForceDeleteEngine.ForceDelete(folder, killLockingProcesses: false, secureWipe: true, turboMode: false,
                 log: message =>
                 {
+                    trace.Add(message);
                     if (!message.StartsWith("[★ SDelete]")) return;
                     sawTruncation = reader.Length == 0;
                     reader.Dispose();
                 });
-            Require(sawTruncation && result.Success, "Directory fallback deleted a previously unseen file without overwriting it.");
+            string details = $"\nStatus={result.Status}, Tier={result.Tier}\n{result.Message}\n" + string.Join(Environment.NewLine, trace);
+            Require(sawTruncation && result.Success, "Directory fallback deleted a previously unseen file without overwriting it." + details);
             Require(!result.HasWarnings && result.SecureWipe.OverwrittenFiles == 1 && result.SecureWipe.UnverifiedDirectories == 0,
-                "A recovered directory scan did not update the final overwrite report.");
+                "A recovered directory scan did not update the final overwrite report." + details);
             RequireMissing(folder);
         }
         finally
         {
             if (Directory.Exists(folder)) directory.SetAccessControl(originalAcl);
+        }
+    }
+
+    [DllImport("advapi32.dll", EntryPoint = "AdjustTokenPrivileges", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AdjustPrivilegeWithPreviousState(IntPtr token, bool disableAll,
+        ref NativeMethods.TOKEN_PRIVILEGES state, uint bufferLength,
+        out NativeMethods.TOKEN_PRIVILEGES previousState, out uint returnLength);
+
+    private static void WithoutBackupPrivilege(Action action)
+    {
+        // The production initializer enables SeBackupPrivilege. Disable only that
+        // privilege for this serial fixture so FindFirstFileExW must honor its ACL;
+        // leave ownership/restore privileges available for the real recovery path.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(ForceDeleteEngine).TypeHandle);
+        bool opened = NativeMethods.OpenProcessToken(NativeMethods.GetCurrentProcess(),
+            NativeMethods.TOKEN_ADJUST_PRIVILEGES | NativeMethods.TOKEN_QUERY, out IntPtr token);
+        int error = Marshal.GetLastWin32Error();
+        Require(opened, $"Cannot open the fixture token (Win32 {error}).");
+        var previous = new NativeMethods.TOKEN_PRIVILEGES();
+        try
+        {
+            bool found = NativeMethods.LookupPrivilegeValueW(null, NativeMethods.SE_BACKUP_NAME, out var luid);
+            error = Marshal.GetLastWin32Error();
+            Require(found, $"Cannot look up SeBackupPrivilege (Win32 {error}).");
+            var disabled = new NativeMethods.TOKEN_PRIVILEGES
+            {
+                PrivilegeCount = 1,
+                Privileges = new NativeMethods.LUID_AND_ATTRIBUTES { Luid = luid, Attributes = 0 }
+            };
+            bool adjusted = AdjustPrivilegeWithPreviousState(token, false, ref disabled,
+                (uint)Marshal.SizeOf<NativeMethods.TOKEN_PRIVILEGES>(), out previous, out _);
+            error = Marshal.GetLastWin32Error();
+            // ERROR_NOT_ALL_ASSIGNED means this token never held the privilege.
+            Require(adjusted && (error == 0 || error == 1300), $"Cannot disable SeBackupPrivilege (Win32 {error}).");
+            if (error == 0 && previous.PrivilegeCount == 0) previous = disabled;
+            action();
+        }
+        finally
+        {
+            try
+            {
+                if (previous.PrivilegeCount > 0)
+                {
+                    bool restored = NativeMethods.AdjustTokenPrivileges(token, false, ref previous, 0, IntPtr.Zero, IntPtr.Zero);
+                    error = Marshal.GetLastWin32Error();
+                    Require(restored && error == 0, $"Cannot restore the fixture's original privilege state (Win32 {error}).");
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(token);
+            }
         }
     }
 
