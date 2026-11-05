@@ -9,6 +9,9 @@
   <ItemGroup>
     <Compile Include="EngineTests.cs" />
     <Compile Include="../../src/ForceDeleter/ForceDeleteEngine.cs" />
+    <Compile Include="../../src/ForceDeleter/SecureWipeResult.cs" />
+    <Compile Include="../../src/ForceDeleter/HistoryRecord.cs" />
+    <Compile Include="../../src/ForceDeleter/TargetItem.cs" />
     <Compile Include="../../src/ForceDeleter/NativeMethods.cs" />
     <Compile Include="../../src/ForceDeleter/PrivilegeManager.cs" />
     <Compile Include="../../src/ForceDeleter/ProcessUnlocker.cs" />

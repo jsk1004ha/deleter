@@ -156,6 +156,13 @@ internal static class UiTests
         var schedule = new HistoryRecord { IsSuccessful = false, IsScheduled = true, Name = "a,\"b" };
         Check(schedule.StatusText == "On reboot", "Reboot scheduling is not labeled Deleted");
         Check(MainForm.HistoryCsv([schedule]).Contains("\"a,\"\"b\""), "CSV escapes commas and quotes");
+        var wipeWarning = new HistoryRecord();
+        wipeWarning.ApplyResult(new DeleteResult(DeleteResultStatus.Success, "Deleted; overwrite failed: Win32 32", 1)
+        {
+            SecureWipe = new SecureWipeReport { Requested = true, FailedFiles = 1 }
+        });
+        Check(wipeWarning.IsDeleted && !wipeWarning.IsSuccessful, "Overwrite failures enter the warning filter despite successful deletion");
+        Check(MainForm.HistoryCsv([wipeWarning]).Contains("Deleted; wipe failed"), "CSV distinguishes deletion from failed overwrite");
         Check(MainForm.FormatSize(long.MaxValue).EndsWith("EB"), "Large file sizes do not overflow units");
         TestRetention(fixture);
         TestPersistenceCompatibility(fixture);

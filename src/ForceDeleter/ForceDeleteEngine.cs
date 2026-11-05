@@ -25,8 +25,11 @@ public sealed class DeleteResult
     public int DeletedFiles { get; set; }
     public int DeletedDirectories { get; set; }
     public int FailedItems { get; set; }
+    public SecureWipeReport SecureWipe { get; set; } = new();
     public bool ScheduledForReboot => Status == DeleteResultStatus.ScheduledOnReboot;
+    // Success describes unlinking; a requested overwrite can still have failed.
     public bool Success => Status == DeleteResultStatus.Success;
+    public bool HasWarnings => !Success || SecureWipe.HasFailures;
 
     public DeleteResult() { }
 
@@ -73,6 +76,23 @@ public static class ForceDeleteEngine
         bool turboMode = true,
         Action<string>? log = null)
     {
+        var wipe = secureWipe ? new SecureWipeTracker() : null;
+        DeleteResult result = ForceDeleteCore(targetPath, killLockingProcesses, wipe, turboMode, log);
+        if (wipe != null)
+        {
+            result.SecureWipe = wipe.Snapshot();
+            result.Message += Environment.NewLine + result.SecureWipe.Describe();
+        }
+        return result;
+    }
+
+    private static DeleteResult ForceDeleteCore(
+        string targetPath,
+        bool killLockingProcesses,
+        SecureWipeTracker? wipe,
+        bool turboMode,
+        Action<string>? log)
+    {
         var result = new DeleteResult();
         if (string.IsNullOrWhiteSpace(targetPath))
         {
@@ -101,13 +121,14 @@ public static class ForceDeleteEngine
 
         if (!isDirectory)
         {
-            return DeleteSingleFile(fullPath, killLockingProcesses, secureWipe, turboMode, log);
+            return DeleteSingleFile(fullPath, killLockingProcesses, wipe, turboMode, log);
         }
 
         // 심볼릭 링크 또는 정션(Junction) 디렉토리인 경우:
         // 원본 데이터 보호를 위해 내부 재귀 진입 없이 링크 자체만 제거 (rmx / rmbrr 안전 규정)
         if (isReparsePoint)
         {
+            wipe?.SkipLink(fullPath);
             log?.Invoke($"[ReparsePoint] Unlinking directory junction/symlink without recursing: {fullPath}");
             SecurityManager.ClearAttributes(longPath);
             if (NativeMethods.RemoveDirectoryW(longPath) || LowLevelNtDelete(longPath, log))
@@ -134,6 +155,7 @@ public static class ForceDeleteEngine
                     string normDetach = SecurityManager.ToLongPath(detachedPath);
                     if (NativeMethods.MoveFileExW(normPath, normDetach, NativeMethods.MOVEFILE_WRITE_THROUGH))
                     {
+                        wipe?.Renamed(workingPath, detachedPath);
                         workingPath = detachedPath;
                         log?.Invoke($"[⚡ Instant Detach] Folder decoupled in <0.1ms -> {Path.GetFileName(detachedPath)}");
                     }
@@ -148,10 +170,11 @@ public static class ForceDeleteEngine
         // rmbrr + ParallelDelete 기반 초고속 Two-Phase(파일 병렬 언링크 -> 역순 디렉터리 언링크) 삭제
         try
         {
-            FastDeleteDirectoryTree(workingPath, killLockingProcesses, secureWipe, log);
+            FastDeleteDirectoryTree(workingPath, killLockingProcesses, wipe, log);
         }
         catch (Exception ex)
         {
+            wipe?.ScanFailed(workingPath, $"Tree processing did not finish: {ex.Message}");
             log?.Invoke($"[!] Fast tree deletion note: {ex.Message}");
         }
 
@@ -170,19 +193,19 @@ public static class ForceDeleteEngine
         }
 
         // 잔여 파일이 남아있는 경우 다단계 에스컬레이션 실행
-        return ForceDeleteSingleTarget(workingPath, isDirectory: true, killLockingProcesses, secureWipe, log);
+        return ForceDeleteSingleTarget(workingPath, isDirectory: true, killLockingProcesses, wipe, log);
     }
 
     private static DeleteResult DeleteSingleFile(
         string filePath,
         bool killLockingProcesses,
-        bool secureWipe,
+        SecureWipeTracker? wipe,
         bool turboMode,
         Action<string>? log)
     {
         string longPath = SecurityManager.ToLongPath(filePath);
 
-        if (turboMode && !secureWipe)
+        if (turboMode && wipe == null)
         {
             // Fast direct unlink
             if (NativeMethods.DeleteFileW(longPath))
@@ -219,7 +242,7 @@ public static class ForceDeleteEngine
         }
 
         // 완강한 단일 파일 다단계 에스컬레이션
-        return ForceDeleteSingleTarget(filePath, isDirectory: false, killLockingProcesses, secureWipe, log);
+        return ForceDeleteSingleTarget(filePath, isDirectory: false, killLockingProcesses, wipe, log);
     }
 
     /// <summary>
@@ -232,16 +255,22 @@ public static class ForceDeleteEngine
     private static void FastDeleteDirectoryTree(
         string rootDirPath,
         bool killLocks,
-        bool secureWipe,
+        SecureWipeTracker? wipe,
         Action<string>? log)
     {
         string longRoot = SecurityManager.ToLongPath(rootDirPath);
         uint rootAttrs = NativeMethods.GetFileAttributesW(longRoot);
         if (rootAttrs == NativeMethods.INVALID_FILE_ATTRIBUTES)
+        {
+            int error = Marshal.GetLastWin32Error();
+            if (!IsMissingError(error))
+                wipe?.ScanFailed(rootDirPath, $"Cannot inspect directory (Win32 {error}: {new Win32Exception(error).Message}).");
             return;
+        }
 
         if ((rootAttrs & NativeMethods.FILE_ATTRIBUTE_REPARSE_POINT) != 0)
         {
+            wipe?.SkipLink(rootDirPath);
             SecurityManager.ClearAttributes(longRoot);
             if (!NativeMethods.RemoveDirectoryW(longRoot))
             {
@@ -273,7 +302,14 @@ public static class ForceDeleteEngine
                 NativeMethods.FIND_FIRST_EX_LARGE_FETCH);
 
             if (hFind == NativeMethods.INVALID_HANDLE_VALUE || hFind == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                if (!IsMissingError(error))
+                    wipe?.ScanFailed(currentDir, $"Cannot enumerate directory (Win32 {error}: {new Win32Exception(error).Message}).");
+                else if (error == NativeMethods.ERROR_FILE_NOT_FOUND)
+                    wipe?.ScanCompleted(currentDir); // The wildcard found no entries.
                 continue;
+            }
 
             try
             {
@@ -291,6 +327,7 @@ public static class ForceDeleteEngine
                     {
                         if (isReparse)
                         {
+                            wipe?.SkipLink(childFullPath);
                             // 하위 폴더가 심볼릭 링크/정션이면 내부 탐색 없이 즉시 언링크
                             string longChild = SecurityManager.ToLongPath(childFullPath);
                             SecurityManager.ClearAttributes(longChild);
@@ -311,6 +348,11 @@ public static class ForceDeleteEngine
                     }
                 }
                 while (NativeMethods.FindNextFileW(hFind, out findData));
+                int error = Marshal.GetLastWin32Error();
+                if (error == NativeMethods.ERROR_NO_MORE_FILES)
+                    wipe?.ScanCompleted(currentDir);
+                else
+                    wipe?.ScanFailed(currentDir, $"Directory enumeration was interrupted (Win32 {error}: {new Win32Exception(error).Message}).");
             }
             finally
             {
@@ -325,14 +367,14 @@ public static class ForceDeleteEngine
             {
                 for (int i = 0; i < allFiles.Count; i++)
                 {
-                    FastDeleteFile(allFiles[i], killLocks, secureWipe, log);
+                    FastDeleteFile(allFiles[i], killLocks, wipe, log);
                 }
             }
             else
             {
                 Parallel.ForEach(allFiles, DefaultParallelOptions, file =>
                 {
-                    FastDeleteFile(file, killLocks, secureWipe, log);
+                    FastDeleteFile(file, killLocks, wipe, log);
                 });
             }
         }
@@ -410,15 +452,12 @@ public static class ForceDeleteEngine
     private static void FastDeleteFile(
         string filePath,
         bool killLocks,
-        bool secureWipe,
+        SecureWipeTracker? wipe,
         Action<string>? log)
     {
         string longPath = SecurityManager.ToLongPath(filePath);
 
-        if (secureWipe)
-        {
-            SecureShredFile(filePath, null);
-        }
+        wipe?.Overwrite(filePath, log);
 
         // Fast Path 1: Direct native unlink (< 0.05ms)
         if (NativeMethods.DeleteFileW(longPath))
@@ -426,6 +465,7 @@ public static class ForceDeleteEngine
 
         // Fast Path 2: Clear Read-Only/Hidden attributes and retry
         SecurityManager.ClearAttributes(longPath);
+        wipe?.Overwrite(filePath, log);
         if (NativeMethods.DeleteFileW(longPath))
             return;
 
@@ -437,12 +477,13 @@ public static class ForceDeleteEngine
         for (int attempt = 0; attempt < 2; attempt++)
         {
             Thread.Sleep(attempt == 0 ? 5 : 15);
+            wipe?.Overwrite(filePath, log);
             if (NativeMethods.DeleteFileW(longPath) || LowLevelNtDelete(longPath, null))
                 return;
         }
 
         // Stubborn file: escalate to full multi-tiered force delete
-        ForceDeleteSingleTarget(filePath, isDirectory: false, killLocks, secureWipe, log);
+        ForceDeleteSingleTarget(filePath, isDirectory: false, killLocks, wipe, log);
     }
 
     /// <summary>
@@ -452,21 +493,38 @@ public static class ForceDeleteEngine
         string targetPath,
         bool isDirectory,
         bool killLockingProcesses,
-        bool secureWipe,
+        SecureWipeTracker? wipe,
         Action<string>? log)
     {
         string longPath = SecurityManager.ToLongPath(targetPath);
 
-        if (!isDirectory && secureWipe)
+        void PrepareOverwrite()
         {
-            SecureShredFile(targetPath, log);
+            if (wipe == null) return;
+            if (isDirectory)
+            {
+                try
+                {
+                    FastDeleteDirectoryTree(targetPath, killLockingProcesses, wipe, log);
+                }
+                catch (Exception ex)
+                {
+                    wipe.ScanFailed(targetPath, $"Tree processing did not finish: {ex.Message}");
+                    log?.Invoke($"[!] Secure directory processing failed: {ex.Message}");
+                }
+            }
+            else
+                wipe.Overwrite(targetPath, log);
         }
 
         // Tier 1: 표준 삭제
         try
         {
+            PrepareOverwrite();
             if (isDirectory)
-                Directory.Delete(targetPath, true);
+                // Secure mode must send every remaining file through the tracked
+                // pipeline. A recursive fallback could erase unverified contents.
+                Directory.Delete(targetPath, recursive: wipe == null);
             else
                 File.Delete(targetPath);
 
@@ -486,6 +544,7 @@ public static class ForceDeleteEngine
         {
             SecurityManager.ClearAttributes(longPath);
             SecurityManager.TakeOwnershipAndGrantFullControl(longPath, log);
+            PrepareOverwrite();
 
             bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
             if (delOk || IsMissing(targetPath))
@@ -507,6 +566,7 @@ public static class ForceDeleteEngine
             {
                 SecurityManager.ClearAttributes(longPath);
                 SecurityManager.TakeOwnershipAndGrantFullControl(longPath, null);
+                PrepareOverwrite();
 
                 return isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
             }, null);
@@ -530,6 +590,7 @@ public static class ForceDeleteEngine
             if (closedHandles > 0)
             {
                 log?.Invoke($"[+] Closed {closedHandles} remote handle(s) for {Path.GetFileName(targetPath)}");
+                PrepareOverwrite();
                 bool delAfterClose = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
                 if (delAfterClose || IsMissing(targetPath))
                 {
@@ -549,6 +610,7 @@ public static class ForceDeleteEngine
                     log?.Invoke($"[+] Terminated {killed} locking process tree(s) for {Path.GetFileName(targetPath)}");
             }
 
+            PrepareOverwrite();
             bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(longPath) : NativeMethods.DeleteFileW(longPath);
             if (delOk || IsMissing(targetPath))
             {
@@ -567,6 +629,7 @@ public static class ForceDeleteEngine
         {
             try
             {
+                PrepareOverwrite();
                 if (LowLevelNtDelete(longPath, log) || IsMissing(targetPath))
                 {
                     log?.Invoke($"[✓ Tier 5] Deleted using NT POSIX semantics: {Path.GetFileName(targetPath)}");
@@ -591,7 +654,9 @@ public static class ForceDeleteEngine
 
                 if (NativeMethods.MoveFileExW(longPath, longTemp, NativeMethods.MOVEFILE_REPLACE_EXISTING))
                 {
+                    wipe?.Renamed(targetPath, tempName);
                     targetForReboot = longTemp;
+                    if (!isDirectory) wipe?.Overwrite(tempName, log);
                     bool delOk = isDirectory ? NativeMethods.RemoveDirectoryW(targetForReboot) : NativeMethods.DeleteFileW(targetForReboot);
                     if (delOk || IsMissing(tempName))
                     {
@@ -623,7 +688,7 @@ public static class ForceDeleteEngine
     /// <summary>
     /// ArrayPool&lt;byte&gt;를 재사용하여 GC(LOH) 압박 없이 파일 내용을 0으로 덮어쓰고 크기를 절삭합니다.
     /// </summary>
-    public static void SecureShredFile(string filePath, Action<string>? log = null)
+    public static SecureWipeFileResult SecureShredFile(string filePath, Action<string>? log = null)
     {
         try
         {
@@ -647,7 +712,8 @@ public static class ForceDeleteEngine
             if ((info.FileAttributes & NativeMethods.FILE_ATTRIBUTE_REPARSE_POINT) != 0)
             {
                 log?.Invoke("[ReparsePoint] Skipped content overwrite; only the file link will be removed.");
-                return;
+                return new SecureWipeFileResult(SecureWipeFileStatus.SkippedReparsePoint,
+                    "Link target was not overwritten.");
             }
 
             byte[] rentedBuffer = ArrayPool<byte>.Shared.Rent(SecureWipeBufferSize);
@@ -672,16 +738,19 @@ public static class ForceDeleteEngine
                 }
 
                 fs.SetLength(0);
-                log?.Invoke($"[★ SDelete] Overwrote file contents with zeroes to prevent recovery ({length} bytes).");
+                log?.Invoke($"[★ SDelete] Overwrote and truncated file contents ({length} bytes).");
             }
             finally
             {
                 ArrayPool<byte>.Shared.Return(rentedBuffer);
             }
+            return new SecureWipeFileResult(SecureWipeFileStatus.Completed, "File contents were overwritten and truncated.");
         }
         catch (Exception ex)
         {
-            log?.Invoke($"[!] SDelete shred note: {ex.Message}");
+            string error = ex is Win32Exception native ? $"Win32 {native.NativeErrorCode}: {native.Message}" : ex.Message;
+            log?.Invoke($"[!] Secure overwrite failed for {filePath}: {error}");
+            return new SecureWipeFileResult(SecureWipeFileStatus.Failed, error);
         }
     }
 

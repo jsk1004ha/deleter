@@ -78,6 +78,7 @@ internal static class NativeMethods
     public const int ERROR_FILE_NOT_FOUND = 2;
     public const int ERROR_PATH_NOT_FOUND = 3;
     public const int ERROR_ACCESS_DENIED = 5;
+    public const int ERROR_NO_MORE_FILES = 18;
     public const int FileAttributeTagInfo = 9;
 
     [StructLayout(LayoutKind.Sequential)]
