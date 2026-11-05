@@ -3,6 +3,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
 using ForceDeleter;
+using Microsoft.Win32.SafeHandles;
 
 internal static class EngineTests
 {
@@ -277,9 +278,17 @@ internal static class EngineTests
         File.WriteAllText(file, "fallback must overwrite these bytes");
         using var reader = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var directory = new DirectoryInfo(folder);
+        var selectedFile = new FileInfo(file);
         DirectorySecurity originalAcl = directory.GetAccessControl();
+        FileSecurity originalFileAcl = selectedFile.GetAccessControl();
         try
         {
+            // Keep this a directory-enumeration fixture. Replacing the parent's
+            // DACL can propagate to unprotected children; preserve this child's
+            // inherited grants explicitly so ACL recovery cannot remove write access.
+            FileSecurity protectedFileAcl = selectedFile.GetAccessControl();
+            protectedFileAcl.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
+            selectedFile.SetAccessControl(protectedFileAcl);
             DirectorySecurity deniedAcl = directory.GetAccessControl();
             deniedAcl.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny));
             directory.SetAccessControl(deniedAcl);
@@ -292,6 +301,16 @@ internal static class EngineTests
             if (find != NativeMethods.INVALID_HANDLE_VALUE && find != IntPtr.Zero) NativeMethods.FindClose(find);
             Require(find == NativeMethods.INVALID_HANDLE_VALUE && error == NativeMethods.ERROR_ACCESS_DENIED,
                 $"The fixture must deny the initial directory scan (handle={find}, Win32 {error}).");
+            using (var writeProbe = new SafeFileHandle(NativeMethods.CreateFileW(
+                SecurityManager.ToLongPath(file), NativeMethods.GENERIC_WRITE | NativeMethods.FILE_READ_ATTRIBUTES,
+                NativeMethods.FILE_SHARE_ALL, IntPtr.Zero, NativeMethods.OPEN_EXISTING,
+                NativeMethods.FILE_FLAG_OPEN_REPARSE_POINT | NativeMethods.FILE_FLAG_WRITE_THROUGH |
+                    NativeMethods.FILE_FLAG_SEQUENTIAL_SCAN, IntPtr.Zero), ownsHandle: true))
+            {
+                int writeError = Marshal.GetLastWin32Error();
+                Require(!writeProbe.IsInvalid,
+                    $"The unlisted child must permit overwrite access before recovery (Win32 {writeError}).");
+            }
             var trace = new List<string>();
             bool sawTruncation = false;
             DeleteResult result = ForceDeleteEngine.ForceDelete(folder, killLockingProcesses: false, secureWipe: true, turboMode: false,
@@ -311,6 +330,7 @@ internal static class EngineTests
         finally
         {
             if (Directory.Exists(folder)) directory.SetAccessControl(originalAcl);
+            if (File.Exists(file)) selectedFile.SetAccessControl(originalFileAcl);
         }
     }
 
