@@ -211,37 +211,60 @@ internal static class EngineTests
         Directory.CreateDirectory(folder);
         string file = Path.Combine(folder, "denied.txt");
         File.WriteAllText(file, "retry must overwrite these bytes");
-        using var reader = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var directory = new DirectoryInfo(folder);
+        // The engine enables backup/restore privileges, so an ACL denying DELETE
+        // alone does not establish that ordinary deletion will reach Tier 2.
+        // Hold deletion closed until we observe the real overwrite, while still
+        // sharing writes so permission recovery can overwrite this same file.
+        using var reader = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var selectedFile = new FileInfo(file);
-        DirectorySecurity originalDirectoryAcl = directory.GetAccessControl();
         FileSecurity originalFileAcl = selectedFile.GetAccessControl();
         SecurityIdentifier user = WindowsIdentity.GetCurrent().User!;
         try
         {
-            DirectorySecurity directoryAcl = directory.GetAccessControl();
-            directoryAcl.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.DeleteSubdirectoriesAndFiles, AccessControlType.Deny));
-            directory.SetAccessControl(directoryAcl);
             FileSecurity fileAcl = selectedFile.GetAccessControl();
-            fileAcl.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.Delete, AccessControlType.Deny));
+            fileAcl.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.WriteData | FileSystemRights.AppendData, AccessControlType.Deny));
             selectedFile.SetAccessControl(fileAcl);
-            bool sawFailure = false, sawTruncation = false;
+
+            string longPath = SecurityManager.ToLongPath(file);
+            uint attributes = NativeMethods.GetFileAttributesW(longPath);
+            int attributeError = Marshal.GetLastWin32Error();
+            Require(attributes != NativeMethods.INVALID_FILE_ATTRIBUTES,
+                $"The fixture must permit attribute inspection before overwrite (Win32 {attributeError}).");
+            SecureWipeFileResult initialOverwrite = ForceDeleteEngine.SecureShredFile(file);
+            Require(initialOverwrite.Status == SecureWipeFileStatus.Failed && initialOverwrite.Message.Contains("Win32 5:"),
+                $"The fixture must deny content writes through the ACL: {initialOverwrite.Status}: {initialOverwrite.Message}");
+            bool initialDelete = NativeMethods.DeleteFileW(longPath);
+            int deleteError = Marshal.GetLastWin32Error();
+            Require(!initialDelete && deleteError == 32,
+                $"The reader must block ordinary deletion with ERROR_SHARING_VIOLATION (deleted={initialDelete}, Win32 {deleteError}).");
+
+            var trace = new List<string>();
+            bool sawFailure = false, sawRecovery = false, overwroteAfterRecovery = false;
+            long? lengthAfterOverwrite = null;
             DeleteResult result = ForceDeleteEngine.ForceDelete(file, killLockingProcesses: false, secureWipe: true, turboMode: false,
                 log: message =>
                 {
+                    trace.Add(message);
                     if (message.StartsWith("[!] Secure overwrite failed for ")) sawFailure = true;
+                    if (message.StartsWith("[✓ SuperDelete] Applied in-process NULL DACL") ||
+                        message.StartsWith("[+] Granted FullControl via managed ACL")) sawRecovery = true;
                     if (!message.StartsWith("[★ SDelete]")) return;
-                    sawTruncation = reader.Length == 0;
+                    overwroteAfterRecovery = sawFailure && sawRecovery;
+                    lengthAfterOverwrite = reader.Length;
                     reader.Dispose();
                 });
-            Require(sawFailure && sawTruncation && result.Success, "Permission recovery did not retry the failed overwrite before deletion.");
+            string details = $"\nStatus={result.Status}, Tier={result.Tier}, Length={lengthAfterOverwrite}\n{result.Message}\n" +
+                string.Join(Environment.NewLine, trace);
+            Require(sawFailure, "The engine did not encounter the initial ACL-denied overwrite." + details);
+            Require(overwroteAfterRecovery, "The failed overwrite was not retried after ACL recovery." + details);
+            Require(lengthAfterOverwrite == 0, "The successful overwrite did not actually truncate the file." + details);
+            Require(result.Success && result.Tier == 2, "Deletion did not succeed at the first permission-recovery tier." + details);
             Require(!result.HasWarnings && result.SecureWipe.OverwrittenFiles == 1 && result.SecureWipe.FailedFiles == 0,
-                "A recovered overwrite was double-counted or retained its obsolete failure.");
+                "A recovered overwrite was double-counted or retained its obsolete failure." + details);
             RequireMissing(file);
         }
         finally
         {
-            directory.SetAccessControl(originalDirectoryAcl);
             if (File.Exists(file)) selectedFile.SetAccessControl(originalFileAcl);
         }
     }
