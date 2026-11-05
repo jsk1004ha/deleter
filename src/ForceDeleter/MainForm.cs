@@ -270,7 +270,7 @@ public partial class MainForm : Form
         };
         view.Controls.Add(_resultCard);
         AddButton(_resultCard, "SuccessDetails", "check", "0 items deleted successfully", () => ShowResults(true), _success);
-        AddButton(_resultCard, "WarningDetails", "alert-triangle", "0 items could not be deleted", () => ShowResults(false), _warning);
+        AddButton(_resultCard, "WarningDetails", "alert-triangle", "0 items need attention", () => ShowResults(false), _warning);
         _success.Overlay = g => PaintResult(g, _success, true);
         _warning.Overlay = g => PaintResult(g, _warning, false);
         AddButton(view, "Done", "check", "Done", () => SwitchTab(AppTab.Delete), _done);
@@ -603,14 +603,14 @@ public partial class MainForm : Form
     private void PaintHistoryRow(Graphics g, Control row, HistoryRecord rec)
     {
         UITheme.Badge(g, new Rectangle(0, S(10), S(51), S(51)), ItemIcon(rec.FileType), ItemColor(rec.FileType));
-        int nameX = Math.Max(S(210), (int)(row.Width * .37)), statusX = row.Width - S(151);
+        int badgeW = S(rec.SecureWipe.HasFailures ? 155 : 92), badgeH = S(24);
+        int nameX = Math.Max(S(210), (int)(row.Width * .37)), statusX = row.Width - badgeW - S(59);
         UITheme.Text(g, rec.Timestamp.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), new Rectangle(S(67), S(14), nameX - S(80), S(24)), S(14), UITheme.TextPrimary);
         UITheme.Text(g, rec.Timestamp.ToString("h:mm tt", CultureInfo.InvariantCulture), new Rectangle(S(67), S(38), nameX - S(80), S(20)), S(13), UITheme.TextSecondary);
         UITheme.Text(g, rec.Name, new Rectangle(nameX, S(14), Math.Max(1, statusX - nameX - S(12)), S(24)), S(15), UITheme.TextPrimary);
         string details = rec.IsDirectory ? "Folder" : $"{rec.FileCount} {(rec.FileCount == 1 ? "item" : "items")}, {FormatSize(rec.TotalSizeBytes)}";
         UITheme.Text(g, details, new Rectangle(nameX, S(38), Math.Max(1, statusX - nameX - S(12)), S(20)), S(13), UITheme.TextSecondary);
         Color statusColor = rec.IsSuccessful ? UITheme.DotGreen : UITheme.DotOrange;
-        int badgeW = S(92), badgeH = S(24);
         var badgeRect = new Rectangle(statusX, (row.Height - badgeH) / 2, badgeW, badgeH);
         using var badgePath = UITheme.GetRoundedPath(badgeRect, S(4));
         using var badgeBg = new SolidBrush(Color.FromArgb(UITheme.Dark ? 28 : 20, statusColor));
@@ -659,9 +659,9 @@ public partial class MainForm : Form
                 var record = new HistoryRecord
                 {
                     Name = item.Name, FullPath = item.FullPath, IsDirectory = item.IsDirectory, FileType = item.FileType,
-                    TotalSizeBytes = item.FileSizeBytes, IsSuccessful = result.Status == DeleteResultStatus.Success,
-                    IsScheduled = result.Status == DeleteResultStatus.ScheduledOnReboot, Details = result.Message
+                    TotalSizeBytes = item.FileSizeBytes
                 };
+                record.ApplyResult(result);
                 ((IProgress<HistoryRecord>)reporting).Report(record);
             }));
             _ring.StatusText = _results.All(r => r.IsSuccessful) ? "Completed" : "With warnings";

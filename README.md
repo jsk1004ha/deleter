@@ -22,7 +22,7 @@ Windows에서 파일이나 폴더를 삭제하려 할 때 발생하는 **"액세
 4. **[shaggie76/FastDelete](https://github.com/shaggie76/FastDelete)**:
    - 대용량 폴더(예: `node_modules`, 캐시, 빌드 디렉터리 등) 삭제 시 CPU 코어 기반 병렬 멀티스레드 트리 순회 삭제로 5~10배 속도 향상.
 5. **[Tulpep/SDelete-Gui](https://github.com/Tulpep/SDelete-Gui)** (Sysinternals SDelete):
-   - 안전 삭제(Secure Delete) 옵션 활성화 시 파일 unlinking 전 디스크 블록 0x00 덮어쓰기 및 버퍼 플러시로 복구 방지 슈레더 기능.
+   - 안전 삭제(Secure Delete) 옵션 활성화 시 파일 unlinking 전 파일 내용을 0x00으로 덮어쓰고 버퍼를 플러시한 뒤 크기를 절삭합니다.
 6. **[RickStrahl/DeleteFiles](https://github.com/RickStrahl/DeleteFiles)**:
    - `\\?\` 접두사 기반 최대 32,767자의 확장 긴 경로(Long Path) 및 특수문자/예약어 지원.
    - Read-Only, Hidden, System 속성 일괄 해제.
@@ -47,6 +47,18 @@ Windows에서 파일이나 폴더를 삭제하려 할 때 발생하는 **"액세
 설정과 실제 삭제 이력은 `%LOCALAPPDATA%/ForceDeleter`에 저장합니다. 재부팅 삭제 예약은 `On reboot` 경고로 구분합니다. 아이콘의 MIT 라이선스와 고정 커밋·해시 출처는 `src/ForceDeleter/Assets/Icons/`에 포함되어 있습니다.
 
 UI 검증: `pwsh -File scripts/verify-ui.ps1 -Mode Build` 실행 후 `-Mode Ui`로 실제 WinForms 창과 임시 파일 삭제를 검사합니다. `-Mode Publish`는 `artifacts/`에 단일 실행 파일을 발행하고, `-Mode Artifact`는 실행 파일과 SVG 해시를 검증합니다.
+
+### 보안 삭제 결과 확인
+
+파일·폴더 삭제와 내용 덮어쓰기 결과를 별도로 기록합니다. 덮어쓰기가 실패해도 가능한 삭제 작업은 계속 진행하며, 삭제만 성공한 경우 결과와 이력에 `Deleted; wipe failed` 경고를 표시합니다. `With Warnings` 필터와 CSV 내보내기에도 같은 상태가 반영됩니다. 상세 정보에는 덮어쓴 파일 수, 실패한 파일 수와 오류, 건너뛴 링크 수, 확인하지 못한 디렉터리 열거 수가 남습니다. 재부팅 삭제 예약은 `On reboot`로 구분하며 덮어쓰기까지 예약되었다는 뜻은 아닙니다.
+
+폴더의 병렬 처리와 후속 권한·잠금 복구 단계에서도 파일별 결과를 유지합니다. 재시도한 덮어쓰기가 성공하면 이전 실패를 갱신하고, 성공적인 삭제만으로 덮어쓰기 실패를 지우지 않습니다. 심볼릭 링크·정션은 대상으로 진입하거나 내용을 덮어쓰지 않고 링크 자체만 제거하며, 결과에는 건너뜀으로 기록합니다.
+
+대소문자를 구분하는 NTFS·WSL 디렉터리에서는 `a.txt`와 `A.txt`를 서로 다른 경로로 추적합니다. 파일 이름 변경과 디렉터리 재검사에서도 다른 경로의 완료·실패 기록을 합치지 않습니다.
+
+엔진을 직접 호출할 때 `DeleteResult.Status`와 `Success`는 삭제 결과를 나타냅니다. 요청한 덮어쓰기까지 확인하려면 `HasWarnings` 및 `SecureWipe` 보고서를 함께 확인합니다. `SecureShredFile`을 직접 호출해도 완료·링크 건너뜀·실패를 구분한 결과를 반환합니다.
+
+엔진 회귀 검증은 관리자 권한의 Windows 환경에서 `dotnet run --project tests/engine/ForceDeleter.EngineTests.csproj -c Release`로 실행합니다. 테스트는 새 임시 폴더의 파일·링크·공유 잠금·ACL만 사용하며, 폴더의 초기 열거 실패 이후 복구 경로도 확인합니다. 삭제를 실행하지 않는 결과 모델 및 이력 직렬화 검증은 같은 명령 끝에 `-- --report-only`를 추가하면 됩니다. Windows 외 환경에서 빌드할 때는 `-p:EnableWindowsTargeting=true`도 지정합니다.
 
 ---
 
