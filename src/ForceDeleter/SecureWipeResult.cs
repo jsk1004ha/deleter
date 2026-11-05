@@ -34,8 +34,11 @@ public sealed class SecureWipeReport
 /// <summary>One entry per selected path, shared by parallel workers and later deletion tiers.</summary>
 internal sealed class SecureWipeTracker
 {
-    private readonly ConcurrentDictionary<string, SecureWipeFileResult> _files = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _scanFailures = new(StringComparer.OrdinalIgnoreCase);
+    // Traversal and retries preserve the original spelling. Windows also supports
+    // case-sensitive directories, where a.txt and A.txt are different objects;
+    // folding case here could skip an overwrite or erase another scan's failure.
+    private readonly ConcurrentDictionary<string, SecureWipeFileResult> _files = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _scanFailures = new(StringComparer.Ordinal);
 
     public void Overwrite(string path, Action<string>? log)
     {
@@ -62,7 +65,7 @@ internal sealed class SecureWipeTracker
         // Directory renames occur before/after workers; a file worker renames only its own entries.
         foreach (var entry in _files.ToArray())
         {
-            if (entry.Key.Equals(oldKey, StringComparison.OrdinalIgnoreCase) || entry.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (entry.Key.Equals(oldKey, StringComparison.Ordinal) || entry.Key.StartsWith(prefix, StringComparison.Ordinal))
             {
                 _files.TryRemove(entry.Key, out _);
                 _files[newKey + entry.Key[oldKey.Length..]] = entry.Value;
@@ -70,7 +73,7 @@ internal sealed class SecureWipeTracker
         }
         foreach (var entry in _scanFailures.ToArray())
         {
-            if (entry.Key.Equals(oldKey, StringComparison.OrdinalIgnoreCase) || entry.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (entry.Key.Equals(oldKey, StringComparison.Ordinal) || entry.Key.StartsWith(prefix, StringComparison.Ordinal))
             {
                 _scanFailures.TryRemove(entry.Key, out _);
                 _scanFailures[newKey + entry.Key[oldKey.Length..]] = entry.Value;

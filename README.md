@@ -54,6 +54,8 @@ UI 검증: `pwsh -File scripts/verify-ui.ps1 -Mode Build` 실행 후 `-Mode Ui`�
 
 폴더의 병렬 처리와 후속 권한·잠금 복구 단계에서도 파일별 결과를 유지합니다. 재시도한 덮어쓰기가 성공하면 이전 실패를 갱신하고, 성공적인 삭제만으로 덮어쓰기 실패를 지우지 않습니다. 심볼릭 링크·정션은 대상으로 진입하거나 내용을 덮어쓰지 않고 링크 자체만 제거하며, 결과에는 건너뜀으로 기록합니다.
 
+대소문자를 구분하는 NTFS·WSL 디렉터리에서는 `a.txt`와 `A.txt`를 서로 다른 경로로 추적합니다. 파일 이름 변경과 디렉터리 재검사에서도 다른 경로의 완료·실패 기록을 합치지 않습니다.
+
 엔진을 직접 호출할 때 `DeleteResult.Status`와 `Success`는 삭제 결과를 나타냅니다. 요청한 덮어쓰기까지 확인하려면 `HasWarnings` 및 `SecureWipe` 보고서를 함께 확인합니다. `SecureShredFile`을 직접 호출해도 완료·링크 건너뜀·실패를 구분한 결과를 반환합니다.
 
 엔진 회귀 검증은 관리자 권한의 Windows 환경에서 `dotnet run --project tests/engine/ForceDeleter.EngineTests.csproj -c Release`로 실행합니다. 테스트는 새 임시 폴더의 파일·링크·공유 잠금·ACL만 사용하며, 폴더의 초기 열거 실패 이후 복구 경로도 확인합니다. 삭제를 실행하지 않는 결과 모델 및 이력 직렬화 검증은 같은 명령 끝에 `-- --report-only`를 추가하면 됩니다. Windows 외 환경에서 빌드할 때는 `-p:EnableWindowsTargeting=true`도 지정합니다.

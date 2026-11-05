@@ -25,6 +25,7 @@ internal static class EngineTests
         Directory.CreateDirectory(root);
         try
         {
+            CheckCaseDistinctPathTracking(root);
             foreach (bool turbo in new[] { false, true })
             {
                 CheckFileLink(root, turbo);
@@ -38,7 +39,7 @@ internal static class EngineTests
             CheckMissingAndInvalidPaths(root);
             CheckOverwriteRetryAfterPermissionRecovery(root);
             WithoutBackupPrivilege(() => CheckDirectoryFallbackAfterScanFailure(root));
-            Console.WriteLine("PASS: link safety, overwrite outcomes, parallel aggregation, permission retries, directory fallback, and history reporting.");
+            Console.WriteLine("PASS: case-distinct paths, link safety, overwrite outcomes, parallel aggregation, permission retries, directory fallback, and history reporting.");
             return 0;
         }
         catch (Exception error)
@@ -50,6 +51,62 @@ internal static class EngineTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static void CheckCaseDistinctPathTracking(string root)
+    {
+        // A case-sensitive NTFS/WSL directory can enumerate both spellings.
+        // Test tracker behavior without requiring the host volume to enable that
+        // optional feature: links and scan outcomes are already observed facts.
+        string lowerDir = Path.Combine(root, "case-sensitive");
+        string upperDir = Path.Combine(root, "CASE-SENSITIVE");
+        string renamedDir = Path.Combine(root, "renamed");
+        string lowerFile = Path.Combine(lowerDir, "a.txt");
+        string upperFile = Path.Combine(lowerDir, "A.txt");
+        string siblingFile = Path.Combine(upperDir, "a.txt");
+        var tracker = new SecureWipeTracker();
+        tracker.SkipLink(lowerFile);
+        tracker.SkipLink(upperFile);
+        tracker.SkipLink(siblingFile);
+        Require(tracker.Snapshot().SkippedLinks == 3, "Case-distinct file paths were merged.");
+
+        tracker.ScanFailed(lowerDir, "lower directory scan failed");
+        tracker.ScanCompleted(upperDir);
+        Require(tracker.Snapshot().UnverifiedDirectories == 1,
+            "A case-distinct directory cleared another directory's scan failure.");
+        tracker.ScanFailed(upperDir, "upper directory scan failed");
+        tracker.Renamed(lowerDir, renamedDir);
+        Require(tracker.Snapshot().SkippedLinks == 3 && tracker.Snapshot().UnverifiedDirectories == 2,
+            "Renaming a directory merged case-distinct file or scan outcomes.");
+        tracker.SkipLink(Path.Combine(renamedDir, "a.txt"));
+        tracker.SkipLink(Path.Combine(renamedDir, "A.txt"));
+        tracker.SkipLink(siblingFile);
+        Require(tracker.Snapshot().SkippedLinks == 3,
+            "Renaming a directory moved or merged its case-distinct sibling's file outcomes.");
+        tracker.ScanCompleted(renamedDir);
+        SecureWipeReport report = tracker.Snapshot();
+        Require(report.UnverifiedDirectories == 1 && report.Failures.Single().StartsWith(SecurityManager.ToLongPath(upperDir) + ":", StringComparison.Ordinal),
+            "Renaming a directory moved or erased its case-distinct sibling's scan failure.");
+
+        string renamedFile = Path.Combine(renamedDir, "renamed.txt");
+        tracker.Renamed(Path.Combine(renamedDir, "a.txt"), renamedFile);
+        Require(tracker.Snapshot().SkippedLinks == 3, "Renaming a file merged case-distinct file outcomes.");
+        tracker.SkipLink(renamedFile);
+        tracker.SkipLink(Path.Combine(renamedDir, "A.txt"));
+        Require(tracker.Snapshot().SkippedLinks == 3,
+            "Renaming a file moved or merged a different file whose name differs only by case.");
+
+        // Seed the observed result for a separate lowercase link, then exercise
+        // a real uppercase file. This covers the Overwrite early-return path
+        // without needing two case-distinct entries on the test host's volume.
+        string regularFile = Path.Combine(root, "CASE-DISTINCT.txt");
+        File.WriteAllText(regularFile, "this selected file must be overwritten");
+        var overwriteTracker = new SecureWipeTracker();
+        overwriteTracker.SkipLink(Path.Combine(root, "case-distinct.txt"));
+        overwriteTracker.Overwrite(regularFile, null);
+        SecureWipeReport overwriteReport = overwriteTracker.Snapshot();
+        Require(new FileInfo(regularFile).Length == 0 && overwriteReport.OverwrittenFiles == 1 && overwriteReport.SkippedLinks == 1 && !overwriteReport.HasFailures,
+            "A differently-cased link result suppressed a real file overwrite.");
     }
 
     private static void CheckFileLink(string root, bool turbo)
