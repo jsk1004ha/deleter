@@ -10,6 +10,7 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyName>ForceDeleter</AssemblyName>
     <RootNamespace>ForceDeleter</RootNamespace>
+    <Version>1.0.1</Version>
 
     <!-- Performance & Deployment Optimization -->
     <PublishSingleFile>true</PublishSingleFile>

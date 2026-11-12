@@ -694,9 +694,24 @@ public partial class MainForm : Form
         MessageBox.Show(this, records.Length == 0 ? "No items" : string.Join("\n\n", records.Select(r => $"{r.Name} — {r.StatusText}\n{r.Details}")), success ? "Deleted items" : "Items with warnings", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
+    internal static OpenFileDialog CreateFileDialog() => new()
+    {
+        Title = "삭제할 파일 선택",
+        Multiselect = true,
+        Filter = "All files (*.*)|*.*",
+        ShowHiddenFiles = true
+    };
+
+    internal static FolderBrowserDialog CreateFolderDialog() => new()
+    {
+        Description = "삭제할 폴더 선택",
+        UseDescriptionForTitle = true,
+        ShowHiddenFiles = true
+    };
+
     private void PromptFiles()
     {
-        using var dialog = new OpenFileDialog { Title = "삭제할 파일 선택", Multiselect = true, Filter = "All files (*.*)|*.*" };
+        using var dialog = CreateFileDialog();
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         AddTargetItems(dialog.FileNames);
         SwitchTab(AppTab.Delete);
@@ -704,7 +719,7 @@ public partial class MainForm : Form
 
     private void PromptFolder()
     {
-        using var dialog = new FolderBrowserDialog { Description = "삭제할 폴더 선택", UseDescriptionForTitle = true };
+        using var dialog = CreateFolderDialog();
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         AddTargetItem(dialog.SelectedPath);
         SwitchTab(AppTab.Delete);

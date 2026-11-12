@@ -193,6 +193,7 @@ internal static class UiTests
         Click(form, "Clear");
         Check(Get<List<TargetItem>>(form, "_items").Count == 0, "Clear removes targets without deleting files");
         Check(File.Exists(paths[0]), "Clear preserves the original fixture file");
+        TestHiddenSelection(form, fixture);
         form.ClientSize = new Size((int)(930 * dpi), (int)(630 * dpi));
         var overflow = Enumerable.Range(0, 20).Select(i => Path.Combine(fixture, $"overflow-{i}.txt")).ToArray();
         foreach (string path in overflow) File.WriteAllText(path, "scroll fixture");
@@ -282,6 +283,29 @@ internal static class UiTests
                   JsonSerializer.Serialize(reopened.History, options) == history,
                 $"Settings and history round-trip after repeated save {pass}");
         }
+    }
+
+    private static void TestHiddenSelection(MainForm form, string fixture)
+    {
+        using var fileDialog = MainForm.CreateFileDialog();
+        Check(fileDialog.ShowHiddenFiles, "File picker enables ShowHiddenFiles");
+        using var folderDialog = MainForm.CreateFolderDialog();
+        Check(folderDialog.ShowHiddenFiles, "Folder picker enables ShowHiddenFiles");
+
+        string hiddenDir = Path.Combine(fixture, ".hidden-folder");
+        Directory.CreateDirectory(hiddenDir);
+        File.SetAttributes(hiddenDir, File.GetAttributes(hiddenDir) | FileAttributes.Hidden);
+
+        string hiddenFile = Path.Combine(hiddenDir, ".hidden-file.txt");
+        File.WriteAllText(hiddenFile, "hidden fixture");
+        File.SetAttributes(hiddenFile, File.GetAttributes(hiddenFile) | FileAttributes.Hidden);
+
+        form.AddTargetItems([hiddenFile, hiddenDir]);
+        Pump();
+        var items = Get<List<TargetItem>>(form, "_items");
+        Check(items.Count == 2 && items.Any(i => i.FullPath == hiddenFile) && items.Any(i => i.FullPath == hiddenDir),
+            "Hidden file and hidden folder can be queued as targets");
+        Click(form, "Clear");
     }
 
     private static void TestIcons()
